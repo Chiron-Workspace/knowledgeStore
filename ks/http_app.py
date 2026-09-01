@@ -14,7 +14,7 @@ from uuid import UUID
 import psycopg
 from flask import Flask, jsonify, request
 
-from ks import settings
+from ks import query as query_mod, settings
 from ks.db import connect
 from ks.ingest import ingest_concepts
 from ks.models import ConceptDraft, SourceModule
@@ -179,6 +179,58 @@ def create_app() -> Flask:
                     ],
                 }
                 for item in result.ingested
+            ]
+        }), 200
+
+    # ------------------------------------------------------------ nodes
+
+    @app.get("/nodes")
+    @require_token
+    def get_nodes():
+        """Thuần đọc DB, KHÔNG chạm LLM. Không trả edges."""
+        raw_limit = request.args.get("limit")
+        limit = settings.DEFAULT_NODE_LIMIT
+        if raw_limit is not None:
+            try:
+                limit = int(raw_limit)
+            except ValueError:
+                return jsonify({"error": "invalid_limit", "detail": "limit phải là số nguyên"}), 400
+            if limit < 1:
+                return jsonify({"error": "invalid_limit", "detail": "limit phải >= 1"}), 400
+            # Vượt trần → 400. KHÔNG âm thầm cắt: client phải biết mình nhận thiếu.
+            if limit > settings.MAX_NODE_LIMIT:
+                return jsonify({
+                    "error": "invalid_limit",
+                    "detail": f"limit tối đa là {settings.MAX_NODE_LIMIT}",
+                }), 400
+
+        source_module = request.args.get("source_module")
+        if source_module is not None:
+            try:
+                SourceModule(source_module)
+            except ValueError as exc:
+                return jsonify({"error": "invalid_source_module", "detail": str(exc)}), 400
+
+        try:
+            with connect() as conn:
+                nodes = query_mod.list_nodes(
+                    conn,
+                    subject=request.args.get("subject"),
+                    source_module=source_module,
+                    limit=limit,
+                )
+        except psycopg.Error as exc:
+            return jsonify({"error": "database_unavailable", "detail": str(exc)}), 503
+
+        return jsonify({
+            "nodes": [
+                {
+                    "id": str(n.id),
+                    "title": n.title,
+                    "subject": n.subject,
+                    "summary": n.summary,
+                }
+                for n in nodes
             ]
         }), 200
 

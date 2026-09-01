@@ -259,3 +259,118 @@ def test_thieu_token_thi_chet_luc_khoi_dong():
 def test_token_ascii_hop_le_thi_qua():
     from ks.http_app import validate_token_config
     assert validate_token_config({"KS_HTTP_TOKEN": "abc123"}) == "abc123"
+
+
+# ---------------------------------------------------------------- GET /nodes
+
+
+def _seed(client, *drafts):
+    return client.post("/ingest", json={"drafts": list(drafts)}, headers=_auth())
+
+
+def _nodes(client, qs=""):
+    return client.get(f"/nodes{qs}", headers=_auth()).get_json()["nodes"]
+
+
+def test_nodes_can_auth(client):
+    assert client.get("/nodes").status_code == 403
+
+
+def test_nodes_tra_ve_danh_sach(client):
+    _seed(client, _draft("Quang hợp", "Sinh học", "Cây dùng ánh sáng."))
+    resp = client.get("/nodes", headers=_auth())
+    assert resp.status_code == 200
+    nodes = resp.get_json()["nodes"]
+    assert len(nodes) == 1
+    assert set(nodes[0]) == {"id", "title", "subject", "summary"}
+
+
+def test_nodes_KHONG_tra_edges(client):
+    _seed(client, _draft("Quang hợp", "Sinh học"))
+    assert "edges" not in _nodes(client)[0]
+
+
+def test_nodes_loc_theo_subject(client):
+    _seed(client, _draft("Quang hợp", "Sinh học"), _draft("Chiến tranh Lạnh", "Lịch sử"))
+    nodes = client.get("/nodes?subject=Sinh học", headers=_auth()).get_json()["nodes"]
+    assert [n["title"] for n in nodes] == ["Quang hợp"]
+
+
+def test_nodes_loc_theo_source_module(client):
+    _seed(client,
+          _draft("Quang hợp", "Sinh học"),
+          _draft("Từ vựng IELTS", "Tiếng Anh", source="lexiflash"))
+    nodes = client.get("/nodes?source_module=lexiflash", headers=_auth()).get_json()["nodes"]
+    assert [n["title"] for n in nodes] == ["Từ vựng IELTS"]
+
+
+def test_nodes_source_module_la_thi_400(client):
+    resp = client.get("/nodes?source_module=horae", headers=_auth())
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_source_module"
+
+
+def test_nodes_limit_mac_dinh_50(client):
+    from ks import settings
+    assert settings.DEFAULT_NODE_LIMIT == 50
+
+
+def test_nodes_limit_duoc_ton_trong(client):
+    _seed(client, _draft("Quang hợp", "Sinh học"), _draft("Chiến tranh Lạnh", "Lịch sử"))
+    nodes = client.get("/nodes?limit=1", headers=_auth()).get_json()["nodes"]
+    assert len(nodes) == 1
+
+
+def test_nodes_limit_bang_tran_500_van_hop_le(client):
+    assert client.get("/nodes?limit=500", headers=_auth()).status_code == 200
+
+
+def test_nodes_vuot_tran_thi_400_KHONG_am_tham_cat(client):
+    """Client phải biết mình nhận thiếu."""
+    resp = client.get("/nodes?limit=501", headers=_auth())
+    assert resp.status_code == 400
+    body = resp.get_json()
+    assert body["error"] == "invalid_limit"
+    assert "500" in body["detail"]
+
+
+def test_nodes_limit_khong_phai_so_thi_400(client):
+    resp = client.get("/nodes?limit=nhiều", headers=_auth())
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_limit"
+
+
+def test_nodes_limit_khong_duong_thi_400(client):
+    for bad in ("0", "-1"):
+        assert client.get(f"/nodes?limit={bad}", headers=_auth()).status_code == 400
+
+
+def test_nodes_merged_tra_ve_node_dich_va_dedup(client):
+    import os
+
+    import psycopg
+    body = _seed(client,
+                 _draft("Quang hợp", "Sinh học"),
+                 _draft("Chiến tranh Lạnh", "Lịch sử")).get_json()["ingested"]
+    src, dst = body[0]["node_id"], body[1]["node_id"]
+    with psycopg.connect(os.environ["KS_DATABASE_URL"]) as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE ks.nodes SET merged_into_id = %s WHERE id = %s", (dst, src))
+        conn.commit()
+    nodes = client.get("/nodes", headers=_auth()).get_json()["nodes"]
+    assert [n["title"] for n in nodes] == ["Chiến tranh Lạnh"]
+
+
+def test_nodes_db_chet_tra_503(monkeypatch):
+    monkeypatch.setenv("KS_HTTP_TOKEN", TOKEN)
+    monkeypatch.setenv("KS_DATABASE_URL", "postgresql://nobody@127.0.0.1:1/khong_co")
+    app = create_app()
+    with app.test_client() as c:
+        assert c.get("/nodes", headers=_auth()).status_code == 503
+
+
+def test_nodes_KHONG_cham_LLM(client, monkeypatch):
+    for var in ("KS_LLM_PROVIDER", "KS_LLM_MODEL", "KS_LLM_BASE_URL",
+                "KS_LLM_API_KEY_ENV", "DEEPSEEK_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    assert client.get("/nodes", headers=_auth()).status_code == 200
