@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from uuid import UUID
 
-from ks import db
+from ks import db, edges as edges_mod
 from ks.ingest import ingest_concepts
-from ks.models import ConceptDraft, SourceModule
+from ks.llm import provider_from_env
+from ks.models import ConceptDraft, RelationType, SourceModule
 
 
 # ---------------------------------------------------------------- commands
@@ -44,6 +47,81 @@ def cmd_create_node(args) -> int:
     return 0
 
 
+def cmd_suggest_edges(args) -> int:
+    provider = provider_from_env()
+    with db.connect() as conn:
+        run = edges_mod.suggest_edges(conn, UUID(args.node_id), provider)
+        conn.commit()
+    print(f"outcome: {run.outcome}  candidate: {len(run.candidates)}  gợi ý mới: {len(run.suggestions)}")
+    if run.error:
+        print(f"lỗi: {run.error}")
+    for s in run.suggestions:
+        print(f"  {s.edge_id}  {s.relation_type.value:>14}  → {s.to_title}")
+        if s.reason:
+            print(f"      lý do: {s.reason}")
+    return 0
+
+
+def cmd_list_pending(args) -> int:
+    with db.connect() as conn:
+        pending = edges_mod.list_pending(conn, limit=args.limit)
+    if not pending:
+        print("không có cạnh nào chờ duyệt")
+    for p in pending:
+        print(f"{p.edge_id}  [{p.suggested_by.value}]  {p.from_title} --{p.relation_type.value}--> {p.to_title}")
+    return 0
+
+
+def cmd_approve(args) -> int:
+    with db.connect() as conn:
+        edges_mod.approve_edge(conn, UUID(args.edge_id))
+        conn.commit()
+    print(f"đã duyệt: {args.edge_id}")
+    return 0
+
+
+def cmd_reject(args) -> int:
+    with db.connect() as conn:
+        edges_mod.reject_edge(conn, UUID(args.edge_id))
+        conn.commit()
+    print(f"đã từ chối (giữ row vĩnh viễn): {args.edge_id}")
+    return 0
+
+
+def cmd_edit(args) -> int:
+    with db.connect() as conn:
+        edges_mod.edit_edge(conn, UUID(args.edge_id), RelationType(args.relation_type))
+        conn.commit()
+    print(f"đã sửa thành {args.relation_type} và duyệt: {args.edge_id}")
+    return 0
+
+
+def cmd_add_edge(args) -> int:
+    with db.connect() as conn:
+        edge_id = edges_mod.add_edge(
+            conn, UUID(args.from_node), UUID(args.to_node), RelationType(args.relation_type)
+        )
+        conn.commit()
+    print(f"đã thêm (approved): {edge_id}")
+    return 0
+
+
+def cmd_neighbors(args) -> int:
+    with db.connect() as conn:
+        result = edges_mod.neighbors(conn, UUID(args.node_id))
+    if not result:
+        print("không có node kề nào (chỉ tính cạnh đã approved)")
+    for n in result:
+        print(f"  {n.relation_type.value:>14}  [{n.direction:>4}]  {n.title}  ({n.node_id})")
+    return 0
+
+
+def cmd_stats(args) -> int:
+    with db.connect() as conn:
+        print(json.dumps(edges_mod.stats(conn), ensure_ascii=False, indent=2))
+    return 0
+
+
 # ---------------------------------------------------------------- parser
 
 
@@ -64,6 +142,40 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[m.value for m in SourceModule],
     )
     p.set_defaults(func=cmd_create_node)
+
+    p = sub.add_parser("suggest-edges", help="Top-K ứng viên → LLM → cạnh 'pending'")
+    p.add_argument("--node-id", required=True)
+    p.set_defaults(func=cmd_suggest_edges)
+
+    p = sub.add_parser("list-pending", help="Cạnh chờ duyệt")
+    p.add_argument("--limit", type=int, default=100)
+    p.set_defaults(func=cmd_list_pending)
+
+    p = sub.add_parser("approve", help="Duyệt một cạnh")
+    p.add_argument("edge_id")
+    p.set_defaults(func=cmd_approve)
+
+    p = sub.add_parser("reject", help="Từ chối một cạnh (giữ row vĩnh viễn)")
+    p.add_argument("edge_id")
+    p.set_defaults(func=cmd_reject)
+
+    p = sub.add_parser("edit", help="Sửa loại quan hệ rồi duyệt")
+    p.add_argument("edge_id")
+    p.add_argument("--relation-type", required=True, choices=[r.value for r in RelationType])
+    p.set_defaults(func=cmd_edit)
+
+    p = sub.add_parser("add-edge", help="Tự thêm cạnh (vào thẳng approved)")
+    p.add_argument("--from-node", required=True, dest="from_node")
+    p.add_argument("--to-node", required=True, dest="to_node")
+    p.add_argument("--relation-type", required=True, choices=[r.value for r in RelationType])
+    p.set_defaults(func=cmd_add_edge)
+
+    p = sub.add_parser("neighbors", help="Node kề qua cạnh đã approved")
+    p.add_argument("--node-id", required=True)
+    p.set_defaults(func=cmd_neighbors)
+
+    p = sub.add_parser("stats", help="Số liệu instrumentation")
+    p.set_defaults(func=cmd_stats)
 
     return parser
 

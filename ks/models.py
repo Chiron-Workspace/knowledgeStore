@@ -88,3 +88,60 @@ class SaveResult:
     ok: bool
     transcript_id: UUID | None
     error: str | None
+
+
+@dataclass(frozen=True)
+class NeighborCandidate:
+    """Node đưa vào prompt gợi ý edge. score là similarity trigram."""
+
+    node_id: UUID
+    title: str
+    subject: str
+    summary: str
+    score: float
+
+
+@dataclass(frozen=True)
+class EdgeSuggestion:
+    """Một cạnh LLM đề xuất, đã ghi vào ks.edges với status='pending'."""
+
+    edge_id: UUID
+    from_node_id: UUID
+    to_node_id: UUID
+    to_title: str
+    relation_type: RelationType
+    reason: str
+
+
+@dataclass(frozen=True)
+class SuggestionRun:
+    """Kết quả một lần suggest_edges. KHÔNG raise khi LLM lỗi — outcome ghi lại."""
+
+    node_id: UUID
+    candidates: tuple[NeighborCandidate, ...]
+    suggestions: tuple[EdgeSuggestion, ...]
+    outcome: str  # 'ok' | 'no_candidates' | 'llm_error' | 'parse_error'
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class PendingEdge:
+    """Cạnh chờ duyệt, kèm tên hai đầu để người đọc quyết được."""
+
+    edge_id: UUID
+    from_node_id: UUID
+    from_title: str
+    to_node_id: UUID
+    to_title: str
+    relation_type: RelationType
+    suggested_by: SuggestedBy
+
+
+@dataclass(frozen=True)
+class Neighbor:
+    """Node kề qua một cạnh đã approved. direction: 'out' | 'in' | 'both'."""
+
+    node_id: UUID
+    title: str
+    relation_type: RelationType
+    direction: str

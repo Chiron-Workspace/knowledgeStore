@@ -6,6 +6,7 @@ save_transcript (không bao giờ raise). Wrapper HTTP tự bắt → 503.
 
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
 import psycopg
@@ -35,6 +36,43 @@ INSERT INTO ks.nodes (title, subject, summary, source_module)
 VALUES (%s, %s, %s, %s)
 RETURNING id
 """
+
+# Log nằm TRONG hàm nghiệp vụ, cùng transaction — không phải bảng phụ caller
+# tự nhớ gọi. Rollback phải mất cả log lẫn data.
+_LOG_SQL = """
+INSERT INTO ks.ingest_log
+  (node_id, draft_title, draft_subject, source_module, decision, threshold, top_score, candidates)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+"""
+
+
+def _log_ingest(
+    conn: psycopg.Connection,
+    item: IngestedConcept,
+    threshold: float,
+) -> None:
+    payload = json.dumps(
+        [
+            {"node_id": str(c.node_id), "title": c.title, "score": c.score}
+            for c in item.candidates
+        ],
+        ensure_ascii=False,
+    )
+    top_score = item.candidates[0].score if item.candidates else None
+    with conn.cursor() as cur:
+        cur.execute(
+            _LOG_SQL,
+            (
+                item.node_id,
+                item.draft.title,
+                item.draft.subject,
+                item.draft.source_module.value,
+                "created" if item.created else "merged",
+                threshold,
+                top_score,
+                payload,
+            ),
+        )
 
 
 def find_candidates(
@@ -101,13 +139,13 @@ def ingest_concepts(
                 node_id = cur.fetchone()[0]
             created = True
 
-        ingested.append(
-            IngestedConcept(
-                draft=draft,
-                node_id=node_id,
-                created=created,
-                candidates=candidates,
-            )
+        item = IngestedConcept(
+            draft=draft,
+            node_id=node_id,
+            created=created,
+            candidates=candidates,
         )
+        _log_ingest(conn, item, threshold)
+        ingested.append(item)
 
     return IngestResult(ingested=tuple(ingested))
