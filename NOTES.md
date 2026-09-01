@@ -23,19 +23,42 @@
 Dedup trigram gộp nhầm khái niệm tên gần giống. Khoá bằng
 `tests/test_dedup_limits.py::test_numbered_variants_are_wrongly_deduped`.
 
-### ⚠️ Số đo THẬT trên cluster hiện tại KHÁC bảng evidence của lần build trước
+### Ba evidence point — đã truy lại được, môi trường KHÔNG đổi
 Đo trên PostgreSQL 18.6, pg_trgm 1.6, collation `en_US.UTF-8`, provider `libc`:
 
-| Cặp | Brief ghi | Đo được | Gộp ở ngưỡng 0.6? |
+| Chuỗi A (nguyên văn) | Chuỗi B (nguyên văn) | similarity | Gộp ở 0.6? |
 |---|---|---|---|
-| "Định luật Newton 1" / "Định luật Newton 2" | 0.89 | **0.8095** | có (đúng như đã biết) |
-| khúc xạ / phản xạ | 0.677 | **0.2308** | **KHÔNG** |
-| "Định luật Ohm" / "Định luật Newton 2" | 0.636 | **0.4348** | **KHÔNG** |
+| `Định luật Newton 1` | `Định luật Newton 2` | 0.8095 | **có** |
+| `Định luật khúc xạ ánh sáng` | `Định luật phản xạ ánh sáng` | 0.6774 | **có** |
+| `Định luật Ohm (curl-nodes)` | `Định luật Newton 2 (curl-nodes)` | 0.6364 | **có** |
+| `khúc xạ` | `phản xạ` | 0.2308 | không |
+| `Định luật Ohm` | `Định luật Newton 2` | 0.4348 | không |
 
-Chỉ 1/3 evidence point tái hiện. Nguyên nhân chưa xác định — nghi do khác
-collation/provider hoặc khác phiên bản Postgres so với cluster lần trước.
-**Chưa chỉnh ngưỡng.** Test khoá số đo thật; nếu đổi cluster mà test đỏ thì
-đó là tín hiệu môi trường đổi, không phải code hỏng.
+Cả ba evidence point của lần build trước đều tái hiện **chính xác** khi đo đúng
+chuỗi (0.636 → 0.6364; 0.677 → 0.6774). Ban đầu tôi đo trên cặp title trần
+(`khúc xạ` vs `phản xạ`, `Định luật Ohm` vs `Định luật Newton 2`) và kết luận
+nhầm rằng môi trường đã đổi. **Không có khác biệt môi trường nào.** Giả thuyết
+collation đã bị bác bỏ, không cần điều tra thêm.
+
+Cơ chế: phần chung của hai chuỗi chiếm đa số trigram. Cùng tiền tố
+`"Định luật "` cộng cùng hậu tố `" ánh sáng"` / `" (curl-nodes)"` đẩy similarity
+từ 0.23 lên 0.68 dù phần khác biệt y hệt nhau. Hậu tố dùng chung là thứ nguy
+hiểm nhất cho dedup trigram — và title thật từ Mnemosyne rất dễ có hậu tố chung
+(tên chương, tên môn, tên bộ đề).
+
+### QUY TẮC: cách ghi một evidence point
+Ghi lại một con số mà không ghi chuỗi đầu vào chính xác thì **không tái sử dụng
+được** — đó là bài học đắt nhất rút ra ở đây. Hai trong ba số cũ suýt bị diễn
+giải thành "môi trường đã đổi" chỉ vì thiếu chuỗi gốc.
+
+Từ nay mọi evidence point về dedup PHẢI ghi đủ:
+1. **Nguyên văn cả hai chuỗi**, kể cả tiền tố/hậu tố trông như rác kỹ thuật
+   (`(curl-nodes)` chính là thứ tạo ra con số).
+2. `SELECT extversion FROM pg_extension WHERE extname = 'pg_trgm';`
+3. `SELECT datcollate, datctype, datlocprovider FROM pg_database WHERE datname = current_database();`
+
+Thiếu ba thứ này thì đến lúc quyết pgvector sẽ không biết số cũ nghĩa là gì.
+`tests/test_dedup_limits.py` khoá cả ba bằng test, gồm cả dấu vân tay môi trường.
 
 ## Nợ kỹ thuật đã ghi nhận
 - `find_candidates` dùng `similarity()` chứ không dùng toán tử `%`, nên **không
