@@ -52,3 +52,15 @@ collation/provider hoặc khác phiên bản Postgres so với cluster lần tr�
    gặp `FATAL: could not create lock file`. Sửa thành PGDATA.
 5. Port là **5432** (mặc định `initdb`). Nếu thấy `55432` ở đâu đó, đó là cluster
    của lần build trước — không dùng lại.
+
+## Phát hiện mới trong lần build này
+**`KS_HTTP_TOKEN` bắt buộc phải là ASCII.** Đo bằng curl thật: token chứa tiếng
+Việt làm MỌI request 403 vĩnh viễn. Nguyên nhân: WSGI giải mã giá trị header HTTP
+bằng latin-1, nên byte UTF-8 của token tới tay ứng dụng dưới dạng mojibake và
+không bao giờ khớp. Đây là lỗi CẤU HÌNH, không phải lỗi client — nên
+`validate_token_config()` chạy lúc `ks serve` khởi động và chết ngay nếu token
+non-ASCII, thay vì im lặng hỏng.
+
+Khác với bug `hmac.compare_digest` (§9 của brief): bug đó là header CLIENT gửi lên
+có ký tự non-ASCII làm crash 500; đã chặn bằng cách so trên bytes. Hai lỗi độc lập,
+đều có test riêng.

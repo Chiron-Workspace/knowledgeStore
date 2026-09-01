@@ -42,8 +42,9 @@ def conn(migrated_url):
 
 @pytest.fixture(autouse=True)
 def _clean_committed_rows(migrated_url):
-    """save_transcript tự mở connection và tự commit — rollback của fixture `conn`
-    không dọn được. Xoá phần đã commit sau mỗi test để test không thấy nhau.
+    """Một số đường đi tự mở connection và tự commit (save_transcript, các route
+    HTTP) — rollback của fixture `conn` không dọn được. Xoá phần đã commit sau
+    mỗi test để test không thấy nhau.
 
     Autouse nên fixture này dựng TRƯỚC `conn`, do đó teardown chạy SAU khi `conn`
     đã rollback — không giành lock với transaction của test.
@@ -51,6 +52,8 @@ def _clean_committed_rows(migrated_url):
     yield
     with psycopg.connect(migrated_url) as cleanup:
         with cleanup.cursor() as cur:
-            cur.execute("DELETE FROM ks.extracted_concepts")
-            cur.execute("DELETE FROM ks.transcripts")
+            cur.execute(
+                "TRUNCATE ks.edge_decision_log, ks.edge_suggestion_run, ks.ingest_log,"
+                " ks.edges, ks.extracted_concepts, ks.transcripts, ks.nodes CASCADE"
+            )
         cleanup.commit()

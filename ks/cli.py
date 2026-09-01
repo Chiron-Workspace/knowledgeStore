@@ -184,6 +184,14 @@ def cmd_discard(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    """Block vô hạn — systemd Type=simple, KHÔNG phải cron job."""
+    from ks.http_app import serve
+
+    serve()
+    return 0
+
+
 # ---------------------------------------------------------------- parser
 
 
@@ -262,6 +270,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("discard", help="Bỏ khái niệm (giữ row vĩnh viễn)")
     p.add_argument("concept_id")
     p.set_defaults(func=cmd_discard)
+
+    p = sub.add_parser("serve", help="Chạy HTTP server (block vô hạn)")
+    p.set_defaults(func=cmd_serve)
 
     return parser
 
