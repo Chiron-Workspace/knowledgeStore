@@ -62,7 +62,16 @@ env KS_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/chiron_ks_test .ve
 Test chạy trên Postgres **thật** — trigram là hành vi của Postgres, mock nó thì
 test mất hết giá trị.
 
-## Vận hành (systemd user units)
+## Vận hành (systemd **user** units)
+
+Đây là lựa chọn có chủ đích, **lệch brief §10** (brief dùng system-level). Mọi
+lệnh vận hành trong tài liệu cũ phải thêm `--user` — xem NOTES.md để biết đánh đổi.
+
+Cần chạy **một lần** để service sống qua logout và tự lên lúc boot:
+
+```bash
+sudo loginctl enable-linger zinnn
+```
 
 File unit ở [deploy/](deploy/). Cài:
 
@@ -76,6 +85,8 @@ cp deploy/*.service deploy/*.timer ~/.config/systemd/user/ && systemctl --user d
 | `chiron-ks-http.service` | `ks serve`, `Type=simple` (block vô hạn, không phải cron) |
 | `chiron-ks-extract.timer` | Mỗi 30 phút. **Cần `DEEPSEEK_API_KEY`** |
 | `chiron-ks-stats.timer` | 23:00 hằng ngày |
+
+Log: `journalctl --user -u chiron-ks-http -f`.
 
 Sửa code xong phải `systemctl --user restart chiron-ks-http` — không restart thì
 curl vẫn đang test code cũ.

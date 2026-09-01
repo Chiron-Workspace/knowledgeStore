@@ -65,6 +65,28 @@ Thiếu ba thứ này thì đến lúc quyết pgvector sẽ không biết số 
   dùng GIN index**. Đổi lại: ngưỡng không phụ thuộc GUC `pg_trgm.similarity_threshold`
   của session. Chấp nhận được ở quy mô một người dùng.
 
+## LỆCH BRIEF CÓ CHỦ ĐÍCH: systemd ở mức USER, không phải system
+
+Brief §10 và bản build lần trước dùng system-level (`/etc/systemd/system/`,
+`sudo systemctl ...`). Lần này chốt **user-level** (`~/.config/systemd/user/`).
+
+Hệ quả — mọi lệnh vận hành trong brief và tài liệu cũ đều phải thêm `--user`:
+
+| Tài liệu cũ | Đúng cho bản này |
+|---|---|
+| `sudo systemctl status chiron-ks-http` | `systemctl --user status chiron-ks-http` |
+| `sudo systemctl restart chiron-ks-http` | `systemctl --user restart chiron-ks-http` |
+| `sudo journalctl -u chiron-ks-http` | `journalctl --user -u chiron-ks-http` |
+| `sudo systemctl show ... -p MainPID` | `systemctl --user show ... -p MainPID` |
+
+Đánh đổi đã cân nhắc:
+- **Được:** không cần sudo mỗi lần sửa unit; unit chạy đúng dưới user `zinnn`,
+  cùng user sở hữu PGDATA `~/.local/share/chiron-ks-postgres`, nên không phải
+  khai báo `User=`/`Group=` hay lo quyền thư mục.
+- **Mất:** cần `sudo loginctl enable-linger zinnn` (một lần) thì service mới
+  sống qua logout và tự lên lúc boot. **Chưa chạy** — `Linger=no`. Không có
+  linger thì KS chết khi logout và Mnemosyne mất endpoint.
+
 ## Bẫy vận hành — đừng lặp lại
 1. **`fish` không có `export`.** Truyền biến bằng `env VAR=value command`.
 2. **Trước khi kill tiến trình `ks serve`:** xác nhận

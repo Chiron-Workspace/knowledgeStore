@@ -1,5 +1,9 @@
 # HTTP layer cho Mnemosyne (Rust/Actix — runtime khác, bắt buộc qua HTTP).
 #
+# USER unit (~/.config/systemd/user/), không phải system unit — lệch brief §10
+# có chủ đích. Mọi lệnh quản lý phải có `--user`. Cần `loginctl enable-linger`
+# để sống qua logout. Xem NOTES.md.
+#
 # Type=simple: `ks serve` block vô hạn, KHÔNG phải cron job.
 # Hai route ghi không chạm LLM nên unit này KHÔNG cần biến LLM nào.
 #
