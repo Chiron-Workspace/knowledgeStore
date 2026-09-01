@@ -35,6 +35,18 @@ CANDIDATE_LIMIT = 5
 # Số node lân cận đưa vào prompt gợi ý edge.
 EDGE_SUGGESTION_TOP_K = 8
 
+# Ngân sách token cho output LLM.
+#
+# ĐO ĐƯỢC THẬT: deepseek-v4-flash là model REASONING — reasoning token TÍNH VÀO
+# max_tokens. Một lần gọi gợi ý edge với 2 ứng viên tốn 222 completion token,
+# trong đó 158 là reasoning (71%). Lượng reasoning thay đổi mỗi lần chạy, nên
+# max_tokens=1000 từng để lại ~15 token cho JSON và cắt ngang giữa chừng.
+#
+# Đặt rộng tay: chi phí chỉ phát sinh theo token THỰC SỰ sinh ra, còn cắt ngang
+# thì hỏng cả lô. Đừng hạ hai số này xuống theo độ dài output nhìn thấy được.
+EDGE_SUGGESTION_MAX_TOKENS = 4000
+EXTRACTION_MAX_TOKENS = 4000
+
 # ---------------------------------------------------------------- http
 
 HTTP_TOKEN_ENV = "KS_HTTP_TOKEN"

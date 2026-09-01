@@ -301,3 +301,27 @@ def test_prerequisite_co_huong(graph):
     add_edge(conn, a, b, RelationType.PREREQUISITE)
     assert neighbors(conn, a)[0].direction == "out"
     assert neighbors(conn, b)[0].direction == "in"
+
+
+def test_suggest_dung_ngan_sach_token_rong(graph):
+    """Cắt ngang làm hỏng cả lô gợi ý, nên ngân sách phải rộng tay."""
+    from ks import settings
+
+    class Ghi(FakeProvider):
+        def complete(self, messages, *, max_tokens=1000, temperature=0.0):
+            self.max_tokens = max_tokens
+            return "[]"
+
+    conn, a, _, _ = graph
+    provider = Ghi()
+    suggest_edges(conn, a, provider)
+    assert provider.max_tokens == settings.EDGE_SUGGESTION_MAX_TOKENS >= 4000
+
+
+def test_phan_hoi_cut_duoc_ghi_la_llm_error_chu_khong_phai_parse_error(graph):
+    """LLMTruncatedError là con của LLMTransientError → outcome 'llm_error',
+    và transcript/run giữ được lượt retry thay vì bị coi là lỗi cấu trúc."""
+    from ks.llm import LLMTruncatedError
+    conn, a, _, _ = graph
+    run = suggest_edges(conn, a, FakeProvider(error=LLMTruncatedError("cạn max_tokens")))
+    assert run.outcome == "llm_error"

@@ -194,7 +194,10 @@ def suggest_edges(
         return SuggestionRun(node_id, (), (), "no_candidates")
 
     try:
-        text = provider.complete(build_prompt(node, candidates))
+        text = provider.complete(
+            build_prompt(node, candidates),
+            max_tokens=settings.EDGE_SUGGESTION_MAX_TOKENS,
+        )
         parsed = parse_suggestions(text, len(candidates))
     except LLMParseError as exc:
         _log_run(conn, node_id, candidate_ids, 0, "parse_error", provider, str(exc))

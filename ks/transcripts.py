@@ -181,7 +181,9 @@ def extract_concepts(
     attempts += 1
 
     try:
-        text = provider.complete(build_prompt(content), max_tokens=2000)
+        text = provider.complete(
+            build_prompt(content), max_tokens=settings.EXTRACTION_MAX_TOKENS
+        )
         parsed = parse_extraction(text)
     except LLMError as exc:
         status = "failed" if attempts >= max_attempts else "pending"

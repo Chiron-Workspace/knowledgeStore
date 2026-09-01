@@ -65,6 +65,40 @@ Thiếu ba thứ này thì đến lúc quyết pgvector sẽ không biết số 
   dùng GIN index**. Đổi lại: ngưỡng không phụ thuộc GUC `pg_trgm.similarity_threshold`
   của session. Chấp nhận được ở quy mô một người dùng.
 
+## deepseek-v4-flash là model REASONING — reasoning token tính vào max_tokens
+
+Phát hiện khi chạy thật, không phải suy đoán. Một lần gọi gợi ý edge với 2 ứng viên:
+
+```
+completion_tokens: 222
+  completion_tokens_details.reasoning_tokens: 158   ← 71% ngân sách
+prompt_tokens: 474 (cached 384)
+```
+
+Lượng reasoning thay đổi mỗi lần chạy. Với `max_tokens=1000`, đã có lần reasoning
+ngốn gần hết ngân sách và chỉ còn ~15 token cho JSON → phản hồi cụt giữa chừng:
+
+```
+[
+  {
+    "candidate": 0,
+    "relation_type": "pr        ← hết token ở đây
+```
+
+Hai thứ đã sửa:
+1. `EDGE_SUGGESTION_MAX_TOKENS` / `EXTRACTION_MAX_TOKENS` = **4000**. Đừng hạ hai
+   số này theo độ dài output NHÌN THẤY được (~200 ký tự) — phần lớn ngân sách là
+   reasoning vô hình. Chi phí chỉ tính theo token thực sinh ra; cắt ngang thì
+   hỏng cả lô.
+2. `LLMTruncatedError` (con của `LLMTransientError`) bắt `finish_reason == "length"`
+   ở OpenAI-compatible và `stop_reason == "max_tokens"` ở Anthropic. Trước đó JSON
+   cụt lọt xuống `json.loads` và hiện ra dưới dạng `LLMParseError` — chẩn đoán sai
+   hoàn toàn, vì cấu trúc phản hồi không hề sai, nó chỉ chưa viết xong. Là lớp con
+   của Transient nên retry được: cùng `max_tokens` lúc đủ lúc không.
+
+Instrumentation đã ghi đúng sự cố này (`edge_suggestion_run.outcome = 'parse_error'`)
+— đây chính là bằng chứng ràng buộc §7 có tác dụng thật.
+
 ## LỆCH BRIEF CÓ CHỦ ĐÍCH: systemd ở mức USER, không phải system
 
 Brief §10 và bản build lần trước dùng system-level (`/etc/systemd/system/`,

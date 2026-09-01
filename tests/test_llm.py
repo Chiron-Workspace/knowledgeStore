@@ -218,3 +218,36 @@ def test_provider_from_env_dung_ten_provider_lam_nhan():
     })
     assert provider.name == "deepseek"
     assert provider.model == "deepseek-v4-flash"
+
+
+# ---------------------------------------------------------------- cắt ngang (reasoning model)
+
+
+def test_openai_compatible_finish_reason_length_la_truncated():
+    """ĐO ĐƯỢC THẬT với deepseek-v4-flash: reasoning token tính vào max_tokens,
+    nên phản hồi có thể cụt giữa chừng. Phải nói thẳng nguyên nhân thay vì để
+    JSON cụt lọt xuống parser rồi hiện ra dưới dạng LLMParseError khó hiểu."""
+    from ks.llm import LLMTruncatedError
+    data = {
+        "choices": [{"message": {"content": '[\n  {\n    "relation_type": "pr'},
+                    "finish_reason": "length"}],
+        "usage": {"completion_tokens": 1000,
+                  "completion_tokens_details": {"reasoning_tokens": 985}},
+    }
+    provider = OpenAICompatibleProvider("m", "k", base_url="https://x/v1", post=fake_post(200, data))
+    with pytest.raises(LLMTruncatedError) as exc:
+        provider.complete(MSGS)
+    assert "reasoning_tokens=985" in str(exc.value)
+
+
+def test_anthropic_stop_reason_max_tokens_la_truncated():
+    from ks.llm import LLMTruncatedError
+    data = {"content": [{"text": "["}], "stop_reason": "max_tokens"}
+    with pytest.raises(LLMTruncatedError):
+        AnthropicProvider("m", "k", post=fake_post(200, data)).complete(MSGS)
+
+
+def test_truncated_la_con_cua_transient_nen_retry_duoc():
+    """Lượng reasoning token thay đổi mỗi lần chạy — cùng max_tokens lúc đủ lúc không."""
+    from ks.llm import LLMTruncatedError
+    assert issubclass(LLMTruncatedError, LLMTransientError)

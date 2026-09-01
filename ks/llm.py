@@ -54,6 +54,16 @@ class LLMRefusalError(LLMError):
     """Model từ chối trả lời."""
 
 
+class LLMTruncatedError(LLMTransientError):
+    """Phản hồi bị cắt vì cạn max_tokens.
+
+    Là con của LLMTransientError nên retry được: với model reasoning, lượng
+    reasoning token thay đổi mỗi lần chạy, cùng một max_tokens lúc đủ lúc không.
+    Tách lớp riêng để thông báo lỗi nói thẳng nguyên nhân, thay vì để phản hồi
+    cụt lọt xuống json.loads rồi hiện ra dưới dạng LLMParseError khó hiểu.
+    """
+
+
 # ---------------------------------------------------------------- protocol
 
 
@@ -159,6 +169,10 @@ class AnthropicProvider:
         # stop_reason "refusal" là field có tài liệu của Anthropic, không phải đoán.
         if data.get("stop_reason") == "refusal":
             raise LLMRefusalError(f"{self.name}: model từ chối trả lời")
+        if data.get("stop_reason") == "max_tokens":
+            raise LLMTruncatedError(
+                f"{self.name}: phản hồi bị cắt vì cạn max_tokens — tăng ngân sách token"
+            )
         try:
             return data["content"][0]["text"]
         except (KeyError, IndexError, TypeError) as exc:
@@ -215,6 +229,14 @@ class OpenAICompatibleProvider:
             raise LLMRefusalError(f"{self.name}: {str(message['refusal'])[:200]}")
         if choice.get("finish_reason") == "content_filter":
             raise LLMRefusalError(f"{self.name}: finish_reason=content_filter")
+        if choice.get("finish_reason") == "length":
+            usage = data.get("usage", {}) or {}
+            detail = usage.get("completion_tokens_details", {}) or {}
+            raise LLMTruncatedError(
+                f"{self.name}: phản hồi bị cắt vì cạn max_tokens — tăng ngân sách token."
+                f" completion_tokens={usage.get('completion_tokens')},"
+                f" reasoning_tokens={detail.get('reasoning_tokens')}"
+            )
 
         content = message.get("content")
         if not isinstance(content, str):
