@@ -7,7 +7,7 @@ import json
 import sys
 from uuid import UUID
 
-from ks import db, edges as edges_mod
+from ks import confirm as confirm_mod, db, edges as edges_mod, transcripts as tr_mod
 from ks.ingest import ingest_concepts
 from ks.llm import provider_from_env
 from ks.models import ConceptDraft, RelationType, SourceModule
@@ -122,6 +122,68 @@ def cmd_stats(args) -> int:
     return 0
 
 
+def cmd_save_transcript(args) -> int:
+    with open(args.file, encoding="utf-8") as fh:
+        content = json.load(fh)
+    result = tr_mod.save_transcript(args.session_ref, content)
+    if result.ok:
+        print(f"đã lưu: {result.transcript_id}")
+        return 0
+    # save_transcript không raise; CLI mới là nơi quyết định exit code.
+    print(f"lỗi: {result.error}", file=sys.stderr)
+    return 1
+
+
+def cmd_extract(args) -> int:
+    provider = provider_from_env()
+    with db.connect() as conn:
+        if args.transcript_id:
+            ids = [UUID(args.transcript_id)]
+        else:
+            ids = list(tr_mod.pending_transcripts(conn, limit=args.limit))
+        if not ids:
+            print("không có transcript nào chờ extract")
+            return 0
+        for tid in ids:
+            result = tr_mod.extract_concepts(conn, tid, provider)
+            conn.commit()  # commit từng transcript: một cái lỗi không kéo cả lô
+            if result.ok:
+                print(f"{tid}: rút được {len(result.concepts)} khái niệm")
+                for c in result.concepts:
+                    print(f"  {c.id}  {c.title}  [{c.subject}]")
+            else:
+                print(f"{tid}: lỗi (lần thử {result.attempts}) — {result.error}", file=sys.stderr)
+    return 0
+
+
+def cmd_list_extracted(args) -> int:
+    with db.connect() as conn:
+        items = confirm_mod.list_extracted(conn, status=args.status, limit=args.limit)
+    if not items:
+        print(f"không có khái niệm nào ở trạng thái {args.status}")
+    for c in items:
+        print(f"{c.id}  {c.title}  [{c.subject}]")
+        print(f"    {c.summary}")
+    return 0
+
+
+def cmd_accept(args) -> int:
+    with db.connect() as conn:
+        item = confirm_mod.accept(conn, UUID(args.concept_id))
+        conn.commit()
+    verb = "tạo mới" if item.created else "gộp vào node có sẵn"
+    print(f"{verb}: {item.node_id}")
+    return 0
+
+
+def cmd_discard(args) -> int:
+    with db.connect() as conn:
+        confirm_mod.discard(conn, UUID(args.concept_id))
+        conn.commit()
+    print(f"đã bỏ (giữ row vĩnh viễn): {args.concept_id}")
+    return 0
+
+
 # ---------------------------------------------------------------- parser
 
 
@@ -176,6 +238,30 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("stats", help="Số liệu instrumentation")
     p.set_defaults(func=cmd_stats)
+
+    p = sub.add_parser("save-transcript", help="Lưu transcript raw (không chạm LLM)")
+    p.add_argument("--session-ref", required=True, dest="session_ref")
+    p.add_argument("--file", required=True, help="File JSON chứa content")
+    p.set_defaults(func=cmd_save_transcript)
+
+    p = sub.add_parser("extract", help="Rút khái niệm từ transcript chờ xử lý")
+    p.add_argument("--transcript-id", default=None, dest="transcript_id")
+    p.add_argument("--limit", type=int, default=50)
+    p.set_defaults(func=cmd_extract)
+
+    p = sub.add_parser("list-extracted", help="Khái niệm chờ xác nhận")
+    p.add_argument("--status", default="pending_review",
+                   choices=["pending_review", "accepted", "discarded"])
+    p.add_argument("--limit", type=int, default=100)
+    p.set_defaults(func=cmd_list_extracted)
+
+    p = sub.add_parser("accept", help="Chấp nhận khái niệm → ghi vào đồ thị")
+    p.add_argument("concept_id")
+    p.set_defaults(func=cmd_accept)
+
+    p = sub.add_parser("discard", help="Bỏ khái niệm (giữ row vĩnh viễn)")
+    p.add_argument("concept_id")
+    p.set_defaults(func=cmd_discard)
 
     return parser
 

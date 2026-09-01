@@ -145,3 +145,28 @@ class Neighbor:
     title: str
     relation_type: RelationType
     direction: str
+
+
+@dataclass(frozen=True)
+class ExtractedConcept:
+    """Khái niệm LLM rút ra từ transcript, CHỜ người xác nhận."""
+
+    id: UUID
+    transcript_id: UUID
+    title: str
+    subject: str
+    summary: str
+    source_module: SourceModule
+    status: str  # 'pending_review' | 'accepted' | 'discarded'
+    node_id: UUID | None
+
+
+@dataclass(frozen=True)
+class ExtractionResult:
+    """Kết quả một lần chạy extract. KHÔNG raise khi LLM lỗi — outcome ghi lại."""
+
+    transcript_id: UUID
+    concepts: tuple[ExtractedConcept, ...]
+    ok: bool
+    attempts: int
+    error: str | None = None
