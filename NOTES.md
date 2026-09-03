@@ -185,13 +185,42 @@ một lần nó đã che mất ca đang cần quan sát.
 Đã sửa: `KS_MNEMOSYNE_TIMEOUT`, mặc định **180 giây**. Chạy lại cùng node đó với
 timeout rộng thì ra `sent` (201) sau 36 giây.
 
-**Nghi vấn CHƯA chứng minh được, cần Mnemosyne kiểm:** đúng lần KS timeout đó,
-`ai_interactions` của Mnemosyne ghi `[no response received from DeepSeek — call
-failed: parse error: EOF while parsing a value at line 1]` với `tokens_used=0`.
-Có thể client ngắt kết nối làm Actix huỷ handler, kéo theo huỷ luôn request
-DeepSeek đang dở → EOF. Nhưng mốc thời gian không khớp hoàn toàn (KS bỏ cuộc
-~15:07:27, họ ghi lỗi 15:07:58), nên **không kết luận được**. Ghi lại như nghi
-vấn, không phải nguyên nhân.
+**Nghi vấn đã bị BÁC BỎ — Actix KHÔNG huỷ handler khi client ngắt kết nối.**
+Tôi từng nghi timeout của KS làm huỷ request DeepSeek đang dở phía Mnemosyne.
+Sai. Mnemosyne chứng minh bằng thí nghiệm: giết client sau 2 giây
+(`curl --max-time 2`), handler của họ vẫn chạy tới cùng và **tạo card bình
+thường** 3 giây sau đó.
+
+Đáng chú ý hơn: phản chứng chặt nhất nằm ngay trong dữ liệu tôi đã cầm. Nếu
+handler bị huỷ thì dòng `ai_interactions` lúc 15:07:58 **không thể tồn tại** —
+future bị drop thì không chạy nhánh lỗi, không INSERT được gì. Dòng đó có mặt,
+tức handler vẫn sống 31 giây sau khi KS bỏ cuộc. Chính khoảng lệch thời gian mà
+tôi thấy khả nghi lại là bằng chứng bác bỏ. Bài học: tôi có sẵn phản chứng và
+không dùng.
+
+Lỗi EOF thật sự là gì: message của Mnemosyne kèm `body snippet:` **rỗng**, tức
+DeepSeek trả **HTTP 2xx kèm body rỗng**. Kết nối đứt giữa chừng thì reqwest báo
+`Network` chứ không phải `Parse`. Đây là bất thường phía upstream, không liên
+quan tới KS.
+
+### Timeout sinh ra KẾT QUẢ MỒ CÔI, không phá việc
+Vì handler bên kia chạy tới cùng, timeout của KS không huỷ gì cả — nó tạo ra
+tình trạng **hai bên tin hai chuyện khác nhau về cùng một node**: Mnemosyne có
+card, KS ghi hỏng.
+
+Hệ thống tự hoà giải, nhưng chỉ nhờ một chuỗi hai bước mà **cả hai bước đều bắt
+buộc**:
+
+1. Timeout ghi `pending`, **không phải** `failed` → node còn được chọn lại.
+2. Lần sau nhận `409` → ghi `sent`, vì **409 không phải lỗi**. Mnemosyne cố ý
+   trả kèm `existing_card_id` chính vì mục đích hoà giải này.
+
+Đổi bất kỳ bước nào cũng làm ca mồ côi mắc kẹt vĩnh viễn. Đã khoá bằng test
+`test_timeout_roi_409_tu_hoa_giai_ket_qua_mo_coi` chạy đúng chuỗi đó.
+
+Ca Gödel thực tế **không** mồ côi — lần đó handler của họ cũng thất bại thật
+(body rỗng), nên set "KS review" có đúng 8 card, không dư. Nhưng nếu DeepSeek
+trả lời bình thường thì đã có một card mà KS ghi là hỏng.
 
 ### `truncated`: wire format đã xác nhận, đường KS vẫn chưa chạy thật
 Mnemosyne đã ép được truncation qua API thật (vá tạm `max_tokens=200` trong

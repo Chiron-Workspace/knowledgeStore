@@ -344,3 +344,42 @@ def test_timeout_khong_phai_so_thi_bao_loi_ro():
             "KS_MNEMOSYNE_URL": "http://127.0.0.1:8081",
             "KS_MNEMOSYNE_TIMEOUT": "lâu",
         })
+
+
+# ---------------------------------------------------------------- kết quả mồ côi
+
+
+def test_timeout_roi_409_tu_hoa_giai_ket_qua_mo_coi(node):
+    """BẤT BIẾN QUAN TRỌNG: timeout phía KS KHÔNG huỷ việc phía Mnemosyne.
+
+    Mnemosyne xác nhận bằng thí nghiệm: giết client sau 2 giây, handler của họ
+    vẫn chạy tới cùng và TẠO CARD BÌNH THƯỜNG 3 giây sau đó. Nghĩa là timeout
+    sinh ra **kết quả mồ côi** — họ có card, KS tưởng hỏng, hai bên tin hai
+    chuyện khác nhau về cùng một node.
+
+    Thứ hoà giải nó là chuỗi hai bước dưới đây, và cả hai bước đều bắt buộc:
+      1. timeout ghi `pending` (KHÔNG phải `failed`) → node còn được chọn lại
+      2. lần sau nhận 409 → ghi `sent` (409 KHÔNG phải lỗi)
+
+    Đổi bất kỳ bước nào cũng làm ca mồ côi mắc kẹt vĩnh viễn.
+    """
+    conn, nid = node
+
+    # Lần 1: KS timeout. Mnemosyne (không thấy được từ đây) vẫn tạo card xong.
+    sync_cards(conn, FakeCardClient(error=CardClientError("timeout khi gọi Mnemosyne")),
+               study_set_id=SET_ID)
+    status, attempts, last_error, _ = _log(conn, nid)
+    assert status == "pending", "timeout phải để node lại cho lần sau"
+    assert attempts == 0, "lỗi hạ tầng không được đốt lượt retry"
+    assert pending_nodes(conn) == (nid,)
+
+    # Lần 2: card đã tồn tại bên kia → 409 kèm existing_card_id.
+    result = sync_cards(
+        conn,
+        FakeCardClient((409, {"error": "card đã tồn tại",
+                              "existing_card_id": "c0ffee00-0000-4000-8000-000000000000"})),
+        study_set_id=SET_ID,
+    )
+    assert result.outcomes[0].status == "sent"
+    assert _log(conn, nid)[0] == "sent"
+    assert pending_nodes(conn) == (), "đã hoà giải, không lặp lại nữa"
