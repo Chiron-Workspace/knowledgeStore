@@ -203,6 +203,21 @@ DeepSeek trả **HTTP 2xx kèm body rỗng**. Kết nối đứt giữa chừng 
 `Network` chứ không phải `Parse`. Đây là bất thường phía upstream, không liên
 quan tới KS.
 
+### Lai lịch 6 node trong DB production — GIỮ có chủ đích, không phải rác
+Sáu node dưới đây được tạo trong vòng săn truncation, **không phải vì có học
+sinh nào học chúng**. Người dùng đã quyết giữ; cả hai phía không dọn.
+
+`Sự hình thành và tiến hóa của sao` · `Định lý bất toàn Gödel` ·
+`Nghịch lý Sorites` · `Mèo Schrödinger` · `Con tàu Theseus` · `Bài toán xe điên`
+
+Chúng là khái niệm mạch lạc, đã tốn token thật để sinh card, và mỗi node có đúng
+một card trong set "KS review" phía Mnemosyne (tổng 8 card = 2 node cũ + 6 node
+này). Giữ chúng không gây hại, và xoá thì tốn công phối hợp hai phía.
+
+**Nếu sau này quyết dọn: phải dọn ĐỒNG THỜI hai phía.** Xoá node phía KS mà để
+card lại thì card mồ côi; xoá card phía Mnemosyne mà để node lại thì `card_sync`
+sinh lại chúng ở lần chạy kế tiếp. Không bên nào tự dọn một mình được.
+
 ### Timeout sinh ra KẾT QUẢ MỒ CÔI, không phá việc
 Vì handler bên kia chạy tới cùng, timeout của KS không huỷ gì cả — nó tạo ra
 tình trạng **hai bên tin hai chuyện khác nhau về cùng một node**: Mnemosyne có
