@@ -61,3 +61,28 @@ DEFAULT_NODE_LIMIT = 50
 
 # Số lần thử lại tối đa cho một transcript.
 MAX_EXTRACTION_ATTEMPTS = 5
+
+
+# ---------------------------------------------------------------- card_sync
+
+MNEMOSYNE_URL_ENV = "KS_MNEMOSYNE_URL"
+MNEMOSYNE_TOKEN_ENV = "KS_MNEMOSYNE_TOKEN"
+
+# Study set cố định cho giai đoạn này. KHÔNG map theo `subject`: subject là TEXT
+# tự do và chưa có bằng chứng phân bố thật để thiết kế mapping hợp lý. Quyết
+# định đó chờ dữ liệu, không đoán trước.
+#
+# Mnemosyne nhận study_set_id là **UUID**, không phải tên — brief ghi "KS review"
+# là TÊN set, còn thứ đi trong request là id của nó. Id nằm ở biến môi trường:
+# set phải được tạo MỘT LẦN ngoài job. Mnemosyne không có unique constraint trên
+# tên set, nên để job tự tạo mỗi lần chạy sẽ đẻ ra hàng loạt set trùng tên.
+CARD_SYNC_STUDY_SET_NAME = "KS review"
+CARD_SYNC_STUDY_SET_ID_ENV = "KS_CARD_SYNC_STUDY_SET_ID"
+
+# Giới hạn retry cho reason="provider_error". Chỉ áp cho provider_error —
+# "truncated" không retry lần nào, còn knowledge_store_error/503 là lỗi hạ tầng
+# tạm thời nên retry không giới hạn (timer sẽ thử lại ở tick sau).
+MAX_CARD_SYNC_ATTEMPTS = 2
+
+# Node mỗi lần chạy job. Giữ nhỏ để một lần chạy không treo quá lâu.
+CARD_SYNC_BATCH_LIMIT = 100

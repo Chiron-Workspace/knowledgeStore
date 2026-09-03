@@ -7,7 +7,13 @@ import json
 import sys
 from uuid import UUID
 
-from ks import confirm as confirm_mod, db, edges as edges_mod, transcripts as tr_mod
+from ks import (
+    card_sync as card_sync_mod,
+    confirm as confirm_mod,
+    db,
+    edges as edges_mod,
+    transcripts as tr_mod,
+)
 from ks.ingest import ingest_concepts
 from ks.llm import provider_from_env
 from ks.models import ConceptDraft, RelationType, SourceModule
@@ -184,6 +190,30 @@ def cmd_discard(args) -> int:
     return 0
 
 
+def cmd_card_sync(args) -> int:
+    """Đẩy node đã duyệt sang Mnemosyne thành card."""
+    client = card_sync_mod.client_from_env()
+    with db.connect() as conn:
+        kwargs = {} if args.limit is None else {"limit": args.limit}
+        result = card_sync_mod.sync_cards(conn, client, **kwargs)
+        conn.commit()
+    if not result.outcomes:
+        print("không có node nào cần đồng bộ")
+        return 0
+    for o in result.outcomes:
+        line = f"{o.node_id}  {o.status}"
+        if o.http_status is not None:
+            line += f"  http={o.http_status}"
+        if o.reason:
+            line += f"  reason={o.reason}"
+        print(line)
+        if o.error:
+            # In nguyên văn: đây là bằng chứng để verify nhánh truncated.
+            print(f"    {o.error}")
+    print(f"tổng kết: {result.by_status()}")
+    return 0
+
+
 def cmd_serve(args) -> int:
     """Block vô hạn — systemd Type=simple, KHÔNG phải cron job."""
     from ks.http_app import serve
@@ -270,6 +300,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("discard", help="Bỏ khái niệm (giữ row vĩnh viễn)")
     p.add_argument("concept_id")
     p.set_defaults(func=cmd_discard)
+
+    p = sub.add_parser("card-sync", help="Đẩy node đã duyệt sang Mnemosyne thành card")
+    p.add_argument("--limit", type=int, default=None)
+    p.set_defaults(func=cmd_card_sync)
 
     p = sub.add_parser("serve", help="Chạy HTTP server (block vô hạn)")
     p.set_defaults(func=cmd_serve)

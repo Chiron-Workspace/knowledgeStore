@@ -459,10 +459,17 @@ def stats(conn: psycopg.Connection) -> dict:
         missed = cur.fetchone()[0]
         cur.execute("SELECT count(*) FROM ks.edge_decision_log WHERE decision = 'manual_add'")
         manual_total = cur.fetchone()[0]
+        cur.execute("SELECT status, count(*) FROM ks.card_sync_log GROUP BY status")
+        card_sync = {r[0]: r[1] for r in cur.fetchall()}
 
     return {
+        # nodes_total là chỉ số vận hành chung (quy mô dữ liệu KS đang ở đâu).
+        # Ban đầu thêm vì giới hạn limit=500 phía Mnemosyne; giới hạn đó đã hết
+        # nhờ GET /nodes/{id}, nhưng chỉ số vẫn hữu ích nên giữ.
+        "nodes_total": nodes + merged,
         "nodes": nodes,
         "nodes_merged": merged,
+        "card_sync_by_status": card_sync,
         "edges_by_status": edges_by_status,
         "ingest_by_decision": ingest_by_decision,
         "suggestion_runs_by_outcome": runs_by_outcome,
