@@ -21,6 +21,17 @@ from ks.models import ConceptDraft, SourceModule
 # Mnemosyne nhận study_set_id là UUID, không phải tên set.
 SET_ID = UUID("ae2c0db6-4a7e-4956-9bb9-ffe25eeaf151")
 
+# NGUYÊN VĂN body 502 Mnemosyne trả trên dây thật (họ ép được truncation qua API
+# thật bằng cách vá tạm max_tokens=200). Lưu ý KHÔNG có field "message" — bản
+# test cũ ở đây bịa ra field đó. Anchor test vào wire thật, đừng vào tưởng tượng.
+TRUNCATED_BODY = {
+    "error": (
+        "DeepSeek stopped mid-answer at its token limit (length); nothing was "
+        "parsed. Retrying, or requesting fewer items, may succeed."
+    ),
+    "reason": "truncated",
+}
+
 
 class FakeCardClient:
     """Trả sẵn (status, body) theo kịch bản. Ghi lại mọi lệnh gọi."""
@@ -76,7 +87,7 @@ def test_node_da_sent_khong_duoc_chon_lai(node):
 def test_node_da_failed_KHONG_duoc_chon_lai(node):
     """failed là quyết định cuối — retry sẽ đốt LLM bên Mnemosyne vô ích."""
     conn, nid = node
-    sync_cards(conn, study_set_id=SET_ID, client=FakeCardClient((502, {"reason": "truncated", "message": "cắt"})))
+    sync_cards(conn, study_set_id=SET_ID, client=FakeCardClient((502, TRUNCATED_BODY)))
     assert _log(conn, nid)[0] == "failed"
     assert pending_nodes(conn) == ()
 
@@ -123,7 +134,7 @@ def test_ton_trong_limit(conn):
         # 503: Mnemosyne chưa nối được KS — lỗi phía họ, thử lại sau.
         (503, {"error": "knowledge store not configured"}, "pending"),
         # 502 + truncated: KHÔNG retry cùng input.
-        (502, {"reason": "truncated", "message": "LLM cắt giữa chừng"}, "failed"),
+        (502, TRUNCATED_BODY, "failed"),
         # 502 + knowledge_store_error: an toàn để retry.
         (502, {"reason": "knowledge_store_error", "message": "GET /nodes lỗi"}, "pending"),
         # 502 + provider_error: retry có giới hạn, lần đầu vẫn pending.
@@ -151,7 +162,7 @@ def test_provider_error_can_luot_thi_thanh_failed(node):
 def test_truncated_failed_NGAY_o_lan_dau_khong_dung_het_luot(node):
     """Khác provider_error: truncated không được hưởng lượt retry nào."""
     conn, nid = node
-    sync_cards(conn, study_set_id=SET_ID, client=FakeCardClient((502, {"reason": "truncated", "message": "cắt"})))
+    sync_cards(conn, study_set_id=SET_ID, client=FakeCardClient((502, TRUNCATED_BODY)))
     status, attempts, _, _ = _log(conn, nid)
     assert status == "failed"
     assert attempts == 1, "truncated phải chết ở lần thử ĐẦU TIÊN"
@@ -186,11 +197,11 @@ def test_last_error_luu_NGUYEN_VAN_reason_va_message(node):
     """YÊU CẦU BẮT BUỘC: nhánh truncated chưa từng verify qua API thật, nên dòng
     log này là bằng chứng duy nhất để kiểm hành vi lần đầu gặp ngoài đời."""
     conn, nid = node
-    sync_cards(conn, study_set_id=SET_ID, client=FakeCardClient(
-        (502, {"reason": "truncated", "message": "LLM output cắt ở token 200"})))
+    sync_cards(conn, study_set_id=SET_ID, client=FakeCardClient((502, TRUNCATED_BODY)))
     _, _, last_error, _ = _log(conn, nid)
     assert "truncated" in last_error
-    assert "LLM output cắt ở token 200" in last_error
+    # Nguyên văn message của Mnemosyne phải còn nguyên trong log, không rút gọn.
+    assert "stopped mid-answer at its token limit" in last_error
     assert "502" in last_error
 
 

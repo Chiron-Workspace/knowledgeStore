@@ -99,37 +99,77 @@ Hai thứ đã sửa:
 Instrumentation đã ghi đúng sự cố này (`edge_suggestion_run.outcome = 'parse_error'`)
 — đây chính là bằng chứng ràng buộc §7 có tác dụng thật.
 
-## card_sync: nhánh `reason="truncated"` CHƯA VERIFY được trên dữ liệu thật
+## card_sync: trạng thái verify từng nhánh
 
-Bảng quyết định của `card_sync` xử lý sáu ca. Năm ca đã chạy thật với Mnemosyne
-sống trên `127.0.0.1:8081`:
+Năm ca đã chạy thật với Mnemosyne sống trên `127.0.0.1:8081`:
 
-| Ca | Đã verify thật | Kết quả |
+| Ca | Verify | Kết quả |
 |---|---|---|
-| 201 card mới | ✅ | `sent` |
-| 409 card đã có | ✅ | `sent` (Mnemosyne check trước khi gọi LLM → không tốn token) |
-| 404 set/node sai | ✅ | `skipped`, không retry |
-| Không gọi nổi Mnemosyne | ✅ | dừng cả lô, `attempts` giữ nguyên |
+| 201 card mới | ✅ thật | `sent` |
+| 409 card đã có | ✅ thật | `sent` (Mnemosyne check TRƯỚC khi gọi LLM → không tốn token) |
+| 404 set/node sai | ✅ thật | `skipped`, không retry |
+| Không gọi nổi Mnemosyne | ✅ thật | dừng cả lô, `attempts` giữ nguyên |
 | 503 KS chưa cấu hình | ❌ chỉ fake | `pending` |
-| **502 `reason="truncated"`** | **❌ chỉ fake** | `failed`, không retry |
+| 502 `reason="truncated"` | ⚠️ xem dưới | `failed`, không retry |
 
-**`truncated` là nhánh đáng lo nhất và chưa từng chạy thật.** Mnemosyne tự xác
-nhận họ cũng không ép được truncation thật qua integration test — fake provider
-của họ phủ qua trait boundary. Nghĩa là logic "không retry nếu truncated" ở cả
-hai phía đều dựa trên thiết kế hợp lý chứ chưa dựa trên dữ liệu thật.
+### `truncated`: wire format đã xác nhận, đường KS vẫn chưa chạy thật
+Mnemosyne đã ép được truncation qua API thật (vá tạm `max_tokens=200` trong
+client của họ, chạy một lần, bỏ vá không commit). Cả ba giá trị `reason` giờ
+đều đã thấy trên dây thật. Body nguyên văn:
 
-Đây KHÔNG phải lỗi, chỉ là trung thực về phạm vi đã kiểm. Khi job gặp `truncated`
-lần đầu ngoài đời, `ks.card_sync_log.last_error` giữ NGUYÊN VĂN `reason` +
-message (không rút gọn) — đó là bằng chứng duy nhất để kiểm hành vi có đúng
-thiết kế không. Tìm bằng:
-
-```sql
-SELECT * FROM ks.card_sync_log WHERE last_error LIKE '%truncated%';
+```json
+{"error": "DeepSeek stopped mid-answer at its token limit (length); nothing was parsed. Retrying, or requesting fewer items, may succeed.",
+ "reason": "truncated"}
 ```
 
-Ghi chú liên quan: KS đã đo được `deepseek-v4-flash` là model reasoning và bị
-cắt output thật (xem mục trên). Mnemosyne dùng cùng provider, nên `truncated`
-gần như chắc chắn sẽ xảy ra — chỉ là chưa bắt được lúc nó xảy ra.
+**Không có field `message`** — bản test cũ của KS bịa ra field đó. Test giờ
+anchor vào payload nguyên văn ở trên (`TRUNCATED_BODY` trong
+`tests/test_card_sync.py`), đúng bài học evidence point: neo vào wire thật,
+đừng neo vào tưởng tượng.
+
+Vẫn phải nói cho đúng phạm vi: **`card_sync` của KS chưa từng NHẬN một response
+truncated thật.** Probe của Mnemosyne gọi thẳng endpoint của họ, không đi qua
+job này. Cái đã được xác nhận là *hình dạng dữ liệu*, không phải *đường đi*.
+`_decide()` đã được kiểm bằng chính payload đó và trả `failed` đúng thiết kế.
+
+### ⚠️ Câu hỏi cho Agent A: có nên retry `truncated` không?
+Brief chốt "KHÔNG retry cùng input — gần như chắc chắn lặp lại y hệt". Hai bằng
+chứng thu được sau đó đều nói ngược lại:
+
+1. Message của chính Mnemosyne: *"Retrying, or requesting fewer items, may succeed."*
+2. Đo thật của KS: `reasoning_tokens` dao động **65 → 200** giữa các lần gọi
+   giống hệt nhau. Lần trước cạn ngân sách không có nghĩa lần sau cũng cạn.
+
+Tức là "lặp lại y hệt" có vẻ không đúng với model reasoning. **KS chưa đổi hành
+vi** — vẫn `failed`, không retry, đúng brief. Đây là quyết định thiết kế của
+Agent A, không phải của code. Nếu đổi ý, chỗ sửa là nhánh `truncated` trong
+`ks/card_sync.py::_decide()` và nó nên dùng chung ngân sách retry với
+`provider_error` thay vì retry vô hạn.
+
+### ⚠️ `tokens_used` bên Mnemosyne ghi 0 cho mọi lượt fail
+Mnemosyne tự phát hiện: call bị truncated **vẫn đốt token thật** (~200 ở lần
+probe) nhưng `ai_interactions.tokens_used` ghi `0`, vì `LLMError::Truncated`
+không mang theo `usage`. Mọi lượt thất bại đều vô hình trong sổ chi phí — và
+truncation là loại đắt nhất, vì reasoning token đã cháy hết trước khi hỏng.
+
+Ảnh hưởng tới KS: **không**. `ks stats` không có cột chi phí nào và không nên
+thêm — KS không phải nơi ghi sổ token của Mnemosyne. Chỉ cần nhớ: nếu sau này
+ai đó đọc số liệu chi phí phía Mnemosyne, cột đó **không tin được cho các lượt
+fail**. Họ đã báo lên phía điều phối của họ, KS không đụng vào.
+
+### Đính chính: điều gì KÍCH HOẠT fallback list-scan của Mnemosyne
+Tôi từng nói với Mnemosyne rằng `systemctl --user restart chiron-ks-http` sẽ
+kích hoạt nhánh fallback của họ. **Sai.** Service chưa lên thì connection bị
+refuse → `KsError::Unreachable` → 502 `knowledge_store_error`, không phải đường
+fallback.
+
+Fallback chỉ chạy khi KS **đang sống nhưng chạy code cũ**: Werkzeug trả HTML 404
+cho route chưa tồn tại, và HTML 404 đó không phân biệt được với "node không tồn
+tại" nếu chỉ nhìn mã trạng thái. Tức là **lệch phiên bản**, không phải downtime.
+Ca này có thật vì hai service phát triển song song trong cùng một checkout.
+Mnemosyne giữ fallback và cho nó log warning khi chạy — hai đường không tương
+đương (đường list-scan không resolve được merge), nên thay thế âm thầm sẽ để lại
+khác biệt đó thành một bí ẩn phát hiện sau.
 
 ## Mnemosyne KHÔNG có systemd unit
 
