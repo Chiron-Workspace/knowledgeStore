@@ -176,8 +176,10 @@ Ba test khoá lại:
   nội dung THIẾU. Chấp nhận nó là im lặng mất dữ liệu. Ngân sách phải thắng cú pháp.
 - đối chứng `finish_reason == "stop"` → đi qua bình thường, không chặn nhầm
 
-Kiểm lại lịch sử `ks.card_sync_log`: **không có dòng 502 nào**, nên KS không có
-lỗi cũ nào cần diễn giải lại thành truncation đội lốt parse error.
+Kiểm lại lịch sử `ks.card_sync_log`: **không có dòng 502 nào**. Đọc cho đúng —
+nghĩa là giả thuyết "lỗi parse cũ thật ra là truncation" **không có ca nào để
+kiểm chứng**, KHÔNG phải đã bị bác bỏ. Sạch theo nghĩa không có nợ cũ, không
+phải theo nghĩa đã chứng minh được điều gì.
 
 Chi tiết tái hiện nằm ở `docs/gotchas.md` mục 2 phía Mnemosyne.
 
