@@ -315,3 +315,32 @@ def test_token_KHONG_bat_buoc(monkeypatch):
     Bắt buộc token ở phía KS sẽ tự chặn mình mà không được gì."""
     client = client_from_env({"KS_MNEMOSYNE_URL": "http://127.0.0.1:8081"})
     assert client is not None
+
+
+# ---------------------------------------------------------------- timeout
+
+
+def test_timeout_mac_dinh_du_rong_cho_model_reasoning():
+    """ĐO ĐƯỢC THẬT: node summary ~1900 ký tự mất 11s; node ~2900 ký tự vượt 30s.
+
+    Timeout ngắn quá TỆ HƠN là chậm — KS bỏ cuộc trước khi Mnemosyne trả lời thì
+    mất luôn phân loại thật (truncated / provider_error / knowledge_store_error),
+    tất cả bị ghi đè thành CardClientError. Đã che mất đúng một ca cần quan sát.
+    """
+    assert settings.DEFAULT_MNEMOSYNE_TIMEOUT >= 120
+
+
+def test_timeout_doc_duoc_tu_env():
+    client = client_from_env({
+        "KS_MNEMOSYNE_URL": "http://127.0.0.1:8081",
+        "KS_MNEMOSYNE_TIMEOUT": "240",
+    })
+    assert client._timeout == 240
+
+
+def test_timeout_khong_phai_so_thi_bao_loi_ro():
+    with pytest.raises(CardClientError, match="KS_MNEMOSYNE_TIMEOUT"):
+        client_from_env({
+            "KS_MNEMOSYNE_URL": "http://127.0.0.1:8081",
+            "KS_MNEMOSYNE_TIMEOUT": "lâu",
+        })

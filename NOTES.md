@@ -135,7 +135,63 @@ Năm ca đã chạy thật với Mnemosyne sống trên `127.0.0.1:8081`:
 | 404 set/node sai | ✅ thật | `skipped`, không retry |
 | Không gọi nổi Mnemosyne | ✅ thật | dừng cả lô, `attempts` giữ nguyên |
 | 503 KS chưa cấu hình | ❌ chỉ fake | `pending` |
-| 502 `reason="truncated"` | ⚠️ xem dưới | `failed`, không retry |
+| 502 `reason="truncated"` | ⚠️ đã thử 6 node, không tái hiện | `failed`, không retry |
+
+### ĐÃ SĂN: 6 node, KHÔNG tái hiện được truncation tự nhiên qua card_sync
+
+Mục tiêu: ép một ca `reason="truncated"` **tự nhiên** (không hạ `max_tokens`)
+đi qua đúng đường `card_sync` → `POST /cards/from_node` → DeepSeek mặc định.
+Kết quả: **6/6 node đều `sent` (201). Không ca nào truncated.**
+
+| Node | prompt (ký tự) | token tiêu | Kết quả |
+|---|---|---|---|
+| Sự hình thành và tiến hóa của sao | 2345 | 1925 | sent |
+| Định lý bất toàn Gödel | 3023 | **5164** | sent |
+| Nghịch lý Sorites | 1059 | 1116 | sent |
+| Mèo Schrödinger | 1092 | **3058** | sent |
+| Con tàu Theseus | 1034 | 1150 | sent |
+| Bài toán xe điên | 1247 | **3811** | sent |
+
+**Giả thuyết ban đầu SAI, và số đo bác bỏ nó.** Tôi cho rằng summary dài sẽ đẩy
+tới trần. Mnemosyne chỉ ra lỗi lập luận: summary dài làm tăng token phía
+**prompt**, còn `max_tokens` chỉ chặn phía **completion** — hai ngân sách khác
+nhau. Biến thật là **độ khó suy luận**.
+
+Số đo xác nhận họ đúng: Schrödinger prompt 1092 ký tự đốt 3058 token, còn
+Theseus prompt 1034 ký tự chỉ đốt 1150 — cùng độ dài, chênh 2,7 lần. Node cuối
+(“Bài toán xe điên”, thiết kế riêng để tối đa hoá cân nhắc: bốn khung đạo đức
+cạnh tranh cộng một trực giác đảo chiều) đốt 3811 token với prompt chỉ 1247 ký
+tự. Hướng đúng, nhưng vẫn không chạm trần.
+
+Cao nhất quan sát được là **5164 token, vẫn thành công** — nên ngân sách mặc
+định của DeepSeek còn dư trên mức đó.
+
+**Kết luận (hợp lệ, không phải bế tắc):** ở phân bố dữ liệu hiện tại, truncation
+tự nhiên qua `card_sync` **hiếm tới mức 6 lần thử có chủ đích không gặp**. Điều
+này CỦNG CỐ quyết định giữ `failed` / không retry: một hiện tượng hiếm tới vậy
+không đáng đánh đổi lấy rủi ro retry mù. Bảng sáu nhánh dưới giữ nguyên nhãn
+`fake` cho dòng này, nhưng ghi chú đổi từ “chưa thử” thành “đã thử 6 node,
+không tái hiện”.
+
+### ⚠️ Timeout 30s của KS đã CHE MẤT một phân loại thật
+Phát hiện ngoài dự kiến trong lúc săn. `HttpCardClient` đặt timeout cứng 30 giây.
+Node Gödel mất hơn 30s để sinh card, nên KS bỏ cuộc và ghi `CardClientError:
+timeout`, **mất luôn** phân loại thật mà Mnemosyne sắp trả về.
+
+Timeout ngắn tệ hơn là chậm: nó ghi đè mọi `reason` (`truncated` /
+`provider_error` / `knowledge_store_error`) thành một lỗi hạ tầng vô nghĩa. Đúng
+một lần nó đã che mất ca đang cần quan sát.
+
+Đã sửa: `KS_MNEMOSYNE_TIMEOUT`, mặc định **180 giây**. Chạy lại cùng node đó với
+timeout rộng thì ra `sent` (201) sau 36 giây.
+
+**Nghi vấn CHƯA chứng minh được, cần Mnemosyne kiểm:** đúng lần KS timeout đó,
+`ai_interactions` của Mnemosyne ghi `[no response received from DeepSeek — call
+failed: parse error: EOF while parsing a value at line 1]` với `tokens_used=0`.
+Có thể client ngắt kết nối làm Actix huỷ handler, kéo theo huỷ luôn request
+DeepSeek đang dở → EOF. Nhưng mốc thời gian không khớp hoàn toàn (KS bỏ cuộc
+~15:07:27, họ ghi lỗi 15:07:58), nên **không kết luận được**. Ghi lại như nghi
+vấn, không phải nguyên nhân.
 
 ### `truncated`: wire format đã xác nhận, đường KS vẫn chưa chạy thật
 Mnemosyne đã ép được truncation qua API thật (vá tạm `max_tokens=200` trong

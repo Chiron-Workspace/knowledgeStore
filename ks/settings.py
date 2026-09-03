@@ -68,6 +68,18 @@ MAX_EXTRACTION_ATTEMPTS = 5
 MNEMOSYNE_URL_ENV = "KS_MNEMOSYNE_URL"
 MNEMOSYNE_TOKEN_ENV = "KS_MNEMOSYNE_TOKEN"
 
+# Timeout gọi POST /cards/from_node.
+#
+# ĐO ĐƯỢC THẬT: sinh card cho một node có summary ~1900 ký tự mất 11 giây; node
+# ~2900 ký tự vượt quá 30 giây. DeepSeek là model reasoning nên thời gian trả
+# lời tỉ lệ với lượng reasoning, mà lượng đó biến động mạnh.
+#
+# Timeout NGẮN QUÁ tệ hơn là chậm: KS bỏ cuộc trước khi Mnemosyne trả lời, ghi
+# thành CardClientError, và MẤT LUÔN phân loại thật (truncated / provider_error
+# / knowledge_store_error). Đúng một lần đã che mất ca đang cần quan sát.
+MNEMOSYNE_TIMEOUT_ENV = "KS_MNEMOSYNE_TIMEOUT"
+DEFAULT_MNEMOSYNE_TIMEOUT = 180
+
 # Study set cố định cho giai đoạn này. KHÔNG map theo `subject`: subject là TEXT
 # tự do và chưa có bằng chứng phân bố thật để thiết kế mapping hợp lý. Quyết
 # định đó chờ dữ liệu, không đoán trước.

@@ -58,7 +58,13 @@ class CardClient(Protocol):
 class HttpCardClient:
     """Client HTTP thật tới Mnemosyne."""
 
-    def __init__(self, base_url: str, token: str = "", *, timeout: int = 30):
+    def __init__(
+        self,
+        base_url: str,
+        token: str = "",
+        *,
+        timeout: int = settings.DEFAULT_MNEMOSYNE_TIMEOUT,
+    ):
         self._base_url = base_url.rstrip("/")
         self._token = token
         self._timeout = timeout
@@ -103,8 +109,15 @@ def client_from_env(env: dict[str, str] | None = None) -> HttpCardClient:
     url = env.get(settings.MNEMOSYNE_URL_ENV, "")
     if not url:
         raise CardClientError(f"Thiếu biến môi trường {settings.MNEMOSYNE_URL_ENV}")
+    raw_timeout = env.get(settings.MNEMOSYNE_TIMEOUT_ENV, "")
+    try:
+        timeout = int(raw_timeout) if raw_timeout else settings.DEFAULT_MNEMOSYNE_TIMEOUT
+    except ValueError as exc:
+        raise CardClientError(
+            f"{settings.MNEMOSYNE_TIMEOUT_ENV}='{raw_timeout}' không phải số nguyên"
+        ) from exc
     # Token KHÔNG bắt buộc: Mnemosyne chưa có auth layer.
-    return HttpCardClient(url, env.get(settings.MNEMOSYNE_TOKEN_ENV, ""))
+    return HttpCardClient(url, env.get(settings.MNEMOSYNE_TOKEN_ENV, ""), timeout=timeout)
 
 
 def study_set_id_from_env(env: dict[str, str] | None = None) -> UUID:
