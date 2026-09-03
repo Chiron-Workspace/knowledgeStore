@@ -40,6 +40,7 @@ env KS_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/chiron_ks .venv/bin/pyt
 | `save-transcript --session-ref --file` | Lưu transcript raw (không chạm LLM) |
 | `extract` | Rút khái niệm từ transcript chờ xử lý |
 | `list-extracted` / `accept` / `discard` | Xác nhận khái niệm đã rút |
+| `card-sync` | Đẩy node đã duyệt sang Mnemosyne thành card |
 | `serve` | Chạy HTTP server (block vô hạn) |
 
 ## HTTP API
@@ -52,6 +53,22 @@ Auth: `Authorization: Bearer <KS_HTTP_TOKEN>`. `/health` không cần auth.
 | `POST /transcripts` | `{session_ref, content}`. Idempotent thật theo `session_ref`. Không trigger extraction. `ok:false` + HTTP 200 = KS sống, DB chết |
 | `POST /ingest` | `{drafts:[...]}`. All-or-nothing. `psycopg.Error` → 503. Idempotency là **fuzzy match theo similarity**, không phải khoá định danh — retry an toàn chỉ khi giữ nguyên văn `title` |
 | `GET /nodes` | `?subject=&source_module=&limit=` (mặc định 50, **trần 500**, vượt trần → 400 chứ không âm thầm cắt). Không trả edges |
+| `GET /nodes/{id}` | Một node. `400` id không phải UUID, `404` không có. Node đã merge → trả **node đích với 200** (một bước), nên `id` trả về có thể khác id đã hỏi |
+
+## card_sync
+
+Đẩy node đã duyệt sang Mnemosyne thành flashcard. Xử lý lỗi theo field `reason`
+của response `502`, **không retry mù** — `truncated` chết ngay không retry,
+`provider_error` retry có giới hạn, `knowledge_store_error` retry thoải mái.
+
+Study set là **UUID**, không phải tên. Tạo set một lần rồi điền id vào `.env`:
+
+```bash
+curl -X POST http://127.0.0.1:8081/study_sets -H 'Content-Type: application/json' -d '{"user_id":"<uuid>","name":"KS review","topic":"..."}'
+```
+
+Mnemosyne không có unique constraint trên tên set, nên đừng để job tự tạo.
+Đọc NOTES.md — nhánh `truncated` chưa từng verify trên dữ liệu thật.
 
 ## Test
 
@@ -85,6 +102,7 @@ cp deploy/*.service deploy/*.timer ~/.config/systemd/user/ && systemctl --user d
 | `chiron-ks-http.service` | `ks serve`, `Type=simple` (block vô hạn, không phải cron) |
 | `chiron-ks-extract.timer` | Mỗi 30 phút. **Cần `DEEPSEEK_API_KEY`** |
 | `chiron-ks-stats.timer` | 23:00 hằng ngày |
+| `chiron-ks-card-sync.timer` | Hằng giờ. Cần Mnemosyne sống ở `KS_MNEMOSYNE_URL` |
 
 Log: `journalctl --user -u chiron-ks-http -f`.
 
