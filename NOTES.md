@@ -60,6 +60,31 @@ Từ nay mọi evidence point về dedup PHẢI ghi đủ:
 Thiếu ba thứ này thì đến lúc quyết pgvector sẽ không biết số cũ nghĩa là gì.
 `tests/test_dedup_limits.py` khoá cả ba bằng test, gồm cả dấu vân tay môi trường.
 
+## QUY TẮC: trao đổi dữ liệu thô, không trao đổi kết luận
+
+Ba lần trong đợt làm việc với Mnemosyne, KS kết luận rộng hơn dữ liệu cho phép,
+và cả ba đều bị bên kia bắt được:
+
+1. "restart `chiron-ks-http` kích hoạt fallback của Mnemosyne" — sai, restart
+   cho `connection refused` → `knowledge_store_error`. Fallback chỉ chạy khi KS
+   sống nhưng chạy code cũ.
+2. Test truncated dùng body có field `message` — body thật chỉ có `error` và
+   `reason`.
+3. "0 dòng 502 nên không có lỗi cũ cần diễn giải lại" — đúng ra là giả thuyết
+   KHÔNG CÓ CA NÀO ĐỂ KIỂM, chưa bị bác bỏ.
+
+Cả ba đều là kết luận rút ra từ chỗ **chỉ một bên nhìn thấy dữ liệu**. KS không
+có cách nào biết `restart` cho `connection refused` thay vì HTML 404, vì hành vi
+đó nằm trong client phía Mnemosyne.
+
+Thứ làm chúng lộ ra không phải sự cẩn thận của bên nào, mà là việc **hai bên
+viết ra đủ cụ thể để bên kia đối chiếu được với thứ mình đang cầm**: KS gửi
+payload nguyên văn thay vì mô tả, Mnemosyne gửi bảng số thay vì kết luận. Nhờ
+vậy chỗ lệch mới va vào nhau thay vì trôi qua.
+
+Áp dụng: khi báo cáo qua ranh giới module, gửi payload/số đo nguyên văn kèm
+theo kết luận, đừng gửi mỗi kết luận. Cùng gốc với quy tắc evidence point ở trên.
+
 ## Nợ kỹ thuật đã ghi nhận
 - `find_candidates` dùng `similarity()` chứ không dùng toán tử `%`, nên **không
   dùng GIN index**. Đổi lại: ngưỡng không phụ thuộc GUC `pg_trgm.similarity_threshold`
@@ -225,6 +250,24 @@ trễ. Không cần sửa gì phía KS.
 Mnemosyne cũng chưa có auth layer (simplification có chủ ý phía họ), nên
 `KS_MNEMOSYNE_TOKEN` để trống được. KS vẫn gửi header `Authorization` NẾU biến
 có giá trị, để sẵn sàng cho lúc họ thêm auth.
+
+### ⚠️ Endpoint `card_sync` phụ thuộc CHƯA có trên origin
+Tính tới lúc viết dòng này, Mnemosyne có **11 commit chưa push**, và
+`POST /cards/from_node` nằm trong số đó. Nghĩa là toàn bộ `card_sync` đang phụ
+thuộc vào một endpoint **chỉ tồn tại ở local checkout của máy này** — không có
+trên origin, không khôi phục được nếu máy hỏng.
+
+Đừng ghi ở đâu rằng phía Mnemosyne "đã an toàn trên origin". Nó chưa.
+
+KS không có quyền và cũng không nên push repo của họ: push lên origin là hành
+động hướng ra ngoài, quyền thuộc về người dùng của họ, và một lần cho phép
+trước đó không phải cho phép vĩnh viễn. Họ đã nêu đề xuất push lên phía người
+dùng của họ; quyết định nằm ở đó. Ghi lại đây thuần tuý để người sau đọc
+`card_sync` biết đúng mức rủi ro của phụ thuộc này.
+
+Đối chiếu: chính brief dựng lại KS tồn tại vì lần trước code không được push
+trước khi cài lại máy — mất sạch. Đây là cùng một hình dạng rủi ro, ở module
+khác.
 
 ## LỆCH BRIEF CÓ CHỦ ĐÍCH: systemd ở mức USER, không phải system
 
