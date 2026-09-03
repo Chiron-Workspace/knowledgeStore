@@ -157,7 +157,7 @@ truncated thật.** Probe của Mnemosyne gọi thẳng endpoint của họ, kh�
 job này. Cái đã được xác nhận là *hình dạng dữ liệu*, không phải *đường đi*.
 `_decide()` đã được kiểm bằng chính payload đó và trả `failed` đúng thiết kế.
 
-### Retry `truncated`: đã có số thật, nhưng KHÔNG áp được cho vận hành
+### CHỐT: KHÔNG retry `truncated`. Quyết định đã đóng, đừng mở lại.
 Brief chốt "KHÔNG retry cùng input — gần như chắc chắn lặp lại y hệt".
 Mnemosyne đo 40 call thật (cùng node, cùng prompt, 10 lần mỗi mức ngân sách):
 
@@ -177,9 +177,13 @@ Mnemosyne **không gửi `max_tokens`**, dùng mặc định của model. Nên t
 trong vận hành nghĩa là reasoning đã ăn hết TOÀN BỘ ngân sách mặc định — rơi ra
 **ngoài** vùng đo được ở trên. Không ai có số cho chế độ đó và không suy ra được.
 
-**KS giữ nguyên `failed`, không retry.** Đó là lựa chọn phòng thủ ở vùng chưa
-đo, không phải kết luận từ bảng trên. Agent A giờ có số thật để cân thay vì cân
-giữa hai câu khẳng định trái nhau. Nếu đổi ý, chỗ sửa là nhánh `truncated` trong
+**Agent A đã chốt: giữ `failed`, không retry.** Lý do nêu rõ khi chốt — *không
+đổi hành vi dựa trên số liệu đo khác phạm vi cần quyết*. Bảng 40-call là dữ liệu
+tốt, nhưng đo trong dải ép `max_tokens` thấp, còn phạm vi cần quyết là chế độ
+mặc định của model. Số liệu tốt ở sai phạm vi vẫn là sai căn cứ.
+
+Đây là quyết định ĐÃ ĐÓNG. Chỉ mở lại khi có số đo trong ĐÚNG chế độ vận hành
+(không ép `max_tokens`). Nếu khi đó đổi ý, chỗ sửa là nhánh `truncated` trong
 `ks/card_sync.py::_decide()`, và nó nên dùng chung ngân sách retry với
 `provider_error` chứ không retry vô hạn.
 
@@ -259,11 +263,15 @@ trên origin, không khôi phục được nếu máy hỏng.
 
 Đừng ghi ở đâu rằng phía Mnemosyne "đã an toàn trên origin". Nó chưa.
 
-KS không có quyền và cũng không nên push repo của họ: push lên origin là hành
-động hướng ra ngoài, quyền thuộc về người dùng của họ, và một lần cho phép
-trước đó không phải cho phép vĩnh viễn. Họ đã nêu đề xuất push lên phía người
-dùng của họ; quyết định nằm ở đó. Ghi lại đây thuần tuý để người sau đọc
-`card_sync` biết đúng mức rủi ro của phụ thuộc này.
+Hệ quả cụ thể cần nêu, và chỉ nêu: **`card_sync` đang được xác nhận là đúng dựa
+trên code chỉ tồn tại ở local phía Mnemosyne.** Nếu máy đó gặp sự cố, milestone
+vừa giao KHÔNG verify lại được.
+
+KS không push repo của họ, và **không nhắc họ push nữa** — kể cả với lý do chính
+đáng. Đây là thông tin để người dùng phía Mnemosyne tự quyết, không phải yêu cầu.
+Push lên origin là hành động hướng ra ngoài, quyền thuộc về người dùng của họ, và
+một lần cho phép trước đó không phải cho phép vĩnh viễn. KS đã một lần thúc và
+nhận sai; Agent A cũng từng lặp nhẹ lỗi tương tự. Không lặp lại.
 
 Đối chiếu: chính brief dựng lại KS tồn tại vì lần trước code không được push
 trước khi cài lại máy — mất sạch. Đây là cùng một hình dạng rủi ro, ở module
