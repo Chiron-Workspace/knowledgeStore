@@ -102,3 +102,68 @@ def test_loc_ap_len_node_da_resolve(conn):
 
 def test_db_rong_tra_ve_rong(conn):
     assert list_nodes(conn) == ()
+
+
+# ---------------------------------------------------------------- get_node
+
+
+def test_get_node_tra_ve_node(conn):
+    from ks.query import get_node
+    node_id = _mk(conn, "Quang hợp", "Sinh học", "Cây dùng ánh sáng.")
+    node = get_node(conn, node_id)
+    assert (node.id, node.title, node.subject, node.summary) == (
+        node_id, "Quang hợp", "Sinh học", "Cây dùng ánh sáng."
+    )
+
+
+def test_get_node_khong_ton_tai_tra_None(conn):
+    import uuid
+
+    from ks.query import get_node
+    assert get_node(conn, uuid.uuid4()) is None
+
+
+def test_get_node_da_merge_tra_node_dich(conn):
+    """Giống hệt GET /nodes: resolve merge, KHÔNG 404."""
+    from ks.query import get_node
+    a = _mk(conn, "Quang hợp", "Sinh học")
+    b = _mk(conn, "Chiến tranh Lạnh", "Lịch sử")
+    _merge(conn, a, b)
+    node = get_node(conn, a)
+    assert node.id == b
+    assert node.title == "Chiến tranh Lạnh"
+
+
+def test_get_node_resolve_dung_MOT_BUOC(conn):
+    """A → B → C: hỏi A ra B, KHÔNG phải C."""
+    from ks.query import get_node
+    c = _mk(conn, "Chiến tranh Lạnh", "Lịch sử")
+    b = _mk(conn, "Phương trình bậc hai", "Toán")
+    a = _mk(conn, "Quang hợp", "Sinh học")
+    _merge(conn, b, c)
+    _merge(conn, a, b)
+    assert get_node(conn, a).id == b
+
+
+def test_get_node_id_cua_extracted_concept_chua_accept_khong_phai_node(conn):
+    """KHÔNG có khái niệm 'node chưa duyệt': ks.nodes không mang cột status.
+    Khái niệm chưa accept chỉ tồn tại ở ks.extracted_concepts, chưa có node nào."""
+    import json
+    import uuid
+
+    from ks.query import get_node
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO ks.transcripts (session_ref, content) VALUES (%s, '[]') RETURNING id",
+            (f"s-{uuid.uuid4()}",),
+        )
+        tid = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO ks.extracted_concepts"
+            " (transcript_id, title, subject, summary, source_module)"
+            " VALUES (%s, 'Chưa duyệt', 'Vật lý', 'x', 'mnemosyne') RETURNING id, status",
+            (tid,),
+        )
+        concept_id, status = cur.fetchone()
+    assert status == "pending_review"
+    assert get_node(conn, concept_id) is None

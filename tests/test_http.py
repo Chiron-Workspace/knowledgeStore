@@ -374,3 +374,98 @@ def test_nodes_KHONG_cham_LLM(client, monkeypatch):
                 "KS_LLM_API_KEY_ENV", "DEEPSEEK_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     assert client.get("/nodes", headers=_auth()).status_code == 200
+
+
+# ---------------------------------------------------------------- GET /nodes/{id}
+
+
+def test_node_by_id_can_auth(client):
+    import uuid
+    assert client.get(f"/nodes/{uuid.uuid4()}").status_code == 403
+
+
+def test_node_by_id_tra_ve_mot_object_khong_boc_them(client):
+    """Shape đúng NodeSummary, trả thẳng object — không bọc trong {"node": ...}."""
+    nid = _seed(client, _draft("Quang hợp", "Sinh học", "Cây dùng ánh sáng.")
+                ).get_json()["ingested"][0]["node_id"]
+    resp = client.get(f"/nodes/{nid}", headers=_auth())
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert set(body) == {"id", "title", "subject", "summary"}
+    assert body["id"] == nid
+    assert body["title"] == "Quang hợp"
+
+
+def test_node_by_id_khong_ton_tai_thi_404(client):
+    import uuid
+    resp = client.get(f"/nodes/{uuid.uuid4()}", headers=_auth())
+    assert resp.status_code == 404
+    assert resp.get_json()["error"] == "node_not_found"
+
+
+def test_node_by_id_khong_phai_uuid_thi_400(client):
+    resp = client.get("/nodes/không-phải-uuid", headers=_auth())
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_node_id"
+
+
+def test_node_by_id_da_merge_tra_node_dich_200_khong_404(client):
+    """Nhất quán với GET /nodes. Client lưu ý: id trả về KHÁC id đã hỏi."""
+    import os
+
+    import psycopg
+    body = _seed(client,
+                 _draft("Quang hợp", "Sinh học"),
+                 _draft("Chiến tranh Lạnh", "Lịch sử")).get_json()["ingested"]
+    src, dst = body[0]["node_id"], body[1]["node_id"]
+    with psycopg.connect(os.environ["KS_DATABASE_URL"]) as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE ks.nodes SET merged_into_id = %s WHERE id = %s", (dst, src))
+        conn.commit()
+    resp = client.get(f"/nodes/{src}", headers=_auth())
+    assert resp.status_code == 200
+    assert resp.get_json()["id"] == dst
+    assert resp.get_json()["title"] == "Chiến tranh Lạnh"
+
+
+def test_node_by_id_khai_niem_chua_accept_thi_404(client):
+    """Brief nói '404 khi node pending_review'. Thực tế ks.nodes KHÔNG có cột
+    status — khái niệm chưa accept chưa hề là node, nên 404 tự nhiên."""
+    import json
+    import os
+    import uuid
+
+    import psycopg
+    with psycopg.connect(os.environ["KS_DATABASE_URL"]) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO ks.transcripts (session_ref, content) VALUES (%s, '[]') RETURNING id",
+                (f"s-{uuid.uuid4()}",),
+            )
+            tid = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO ks.extracted_concepts"
+                " (transcript_id, title, subject, summary, source_module)"
+                " VALUES (%s, 'Chưa duyệt', 'Vật lý', 'x', 'mnemosyne') RETURNING id",
+                (tid,),
+            )
+            concept_id = cur.fetchone()[0]
+        conn.commit()
+    assert client.get(f"/nodes/{concept_id}", headers=_auth()).status_code == 404
+
+
+def test_node_by_id_db_chet_tra_503(monkeypatch):
+    import uuid
+    monkeypatch.setenv("KS_HTTP_TOKEN", TOKEN)
+    monkeypatch.setenv("KS_DATABASE_URL", "postgresql://nobody@127.0.0.1:1/khong_co")
+    app = create_app()
+    with app.test_client() as c:
+        assert c.get(f"/nodes/{uuid.uuid4()}", headers=_auth()).status_code == 503
+
+
+def test_node_by_id_KHONG_cham_LLM(client, monkeypatch):
+    nid = _seed(client, _draft("Quang hợp", "Sinh học")).get_json()["ingested"][0]["node_id"]
+    for var in ("KS_LLM_PROVIDER", "KS_LLM_MODEL", "KS_LLM_BASE_URL",
+                "KS_LLM_API_KEY_ENV", "DEEPSEEK_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    assert client.get(f"/nodes/{nid}", headers=_auth()).status_code == 200

@@ -234,6 +234,43 @@ def create_app() -> Flask:
             ]
         }), 200
 
+
+    @app.get("/nodes/<node_id>")
+    @require_token
+    def get_node(node_id: str):
+        """Một node theo id. Thuần đọc DB, KHÔNG chạm LLM.
+
+        Node đã merge → trả node ĐÍCH với 200 (đúng một bước), giống hệt
+        GET /nodes. Hai route đọc cùng dữ liệu không được hành xử khác nhau.
+        Hệ quả cho client: `id` trả về có thể KHÁC id đã hỏi.
+        """
+        try:
+            parsed = UUID(node_id)
+        except ValueError:
+            return jsonify({
+                "error": "invalid_node_id",
+                "detail": f"'{node_id}' không phải UUID hợp lệ",
+            }), 400
+
+        try:
+            with connect() as conn:
+                node = query_mod.get_node(conn, parsed)
+        except psycopg.Error as exc:
+            return jsonify({"error": "database_unavailable", "detail": str(exc)}), 503
+
+        if node is None:
+            return jsonify({
+                "error": "node_not_found",
+                "detail": f"không có node {node_id}",
+            }), 404
+
+        return jsonify({
+            "id": str(node.id),
+            "title": node.title,
+            "subject": node.subject,
+            "summary": node.summary,
+        }), 200
+
     return app
 
 

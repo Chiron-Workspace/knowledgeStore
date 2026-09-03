@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import psycopg
 
 from ks import settings
@@ -55,3 +57,34 @@ def list_nodes(
     return tuple(
         NodeSummary(id=r[0], title=r[1], subject=r[2], summary=r[3]) for r in rows
     )
+
+
+# Cùng luật resolve merge như _LIST_SQL: trả node ĐÍCH, đúng MỘT BƯỚC. Hai route
+# đọc cùng dữ liệu thì không được hành xử khác nhau.
+#
+# Lưu ý cho caller: node A đã merge vào B thì hàm này trả về B — `id` trong kết
+# quả KHÁC `node_id` truyền vào. Đó là chủ đích, không phải bug.
+_GET_SQL = """
+SELECT COALESCE(t.id, n.id)             AS id,
+       COALESCE(t.title, n.title)       AS title,
+       COALESCE(t.subject, n.subject)   AS subject,
+       COALESCE(t.summary, n.summary)   AS summary
+FROM ks.nodes n
+LEFT JOIN ks.nodes t ON t.id = n.merged_into_id
+WHERE n.id = %(node_id)s
+"""
+
+
+def get_node(conn: psycopg.Connection, node_id: UUID) -> NodeSummary | None:
+    """Một node theo id, đã resolve merge. None nếu không có.
+
+    KHÔNG có khái niệm "node chưa duyệt": `ks.nodes` không mang cột status, node
+    chỉ tồn tại SAU khi `ks.cli accept` chạy (xem ks/confirm.py). Id của một
+    extracted_concept chưa accept đơn giản là không phải node id → None.
+    """
+    with conn.cursor() as cur:
+        cur.execute(_GET_SQL, {"node_id": node_id})
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return NodeSummary(id=row[0], title=row[1], subject=row[2], summary=row[3])
