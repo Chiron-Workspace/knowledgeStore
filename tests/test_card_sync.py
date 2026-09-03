@@ -294,14 +294,13 @@ def test_khong_tu_commit(node):
 # ---------------------------------------------------------------- cấu hình
 
 
-def test_thieu_bien_moi_truong_thi_bao_loi_ro(monkeypatch):
+def test_thieu_url_thi_bao_loi_ro():
     with pytest.raises(CardClientError, match="KS_MNEMOSYNE_URL"):
         client_from_env({})
 
 
-def test_client_from_env_dung_du_hai_bien():
-    client = client_from_env({
-        "KS_MNEMOSYNE_URL": "http://127.0.0.1:9000",
-        "KS_MNEMOSYNE_TOKEN": "tok",
-    })
+def test_token_KHONG_bat_buoc(monkeypatch):
+    """Mnemosyne chưa có auth layer — /cards/from_node không có extractor auth.
+    Bắt buộc token ở phía KS sẽ tự chặn mình mà không được gì."""
+    client = client_from_env({"KS_MNEMOSYNE_URL": "http://127.0.0.1:8081"})
     assert client is not None

@@ -99,6 +99,50 @@ Hai thứ đã sửa:
 Instrumentation đã ghi đúng sự cố này (`edge_suggestion_run.outcome = 'parse_error'`)
 — đây chính là bằng chứng ràng buộc §7 có tác dụng thật.
 
+## card_sync: nhánh `reason="truncated"` CHƯA VERIFY được trên dữ liệu thật
+
+Bảng quyết định của `card_sync` xử lý sáu ca. Năm ca đã chạy thật với Mnemosyne
+sống trên `127.0.0.1:8081`:
+
+| Ca | Đã verify thật | Kết quả |
+|---|---|---|
+| 201 card mới | ✅ | `sent` |
+| 409 card đã có | ✅ | `sent` (Mnemosyne check trước khi gọi LLM → không tốn token) |
+| 404 set/node sai | ✅ | `skipped`, không retry |
+| Không gọi nổi Mnemosyne | ✅ | dừng cả lô, `attempts` giữ nguyên |
+| 503 KS chưa cấu hình | ❌ chỉ fake | `pending` |
+| **502 `reason="truncated"`** | **❌ chỉ fake** | `failed`, không retry |
+
+**`truncated` là nhánh đáng lo nhất và chưa từng chạy thật.** Mnemosyne tự xác
+nhận họ cũng không ép được truncation thật qua integration test — fake provider
+của họ phủ qua trait boundary. Nghĩa là logic "không retry nếu truncated" ở cả
+hai phía đều dựa trên thiết kế hợp lý chứ chưa dựa trên dữ liệu thật.
+
+Đây KHÔNG phải lỗi, chỉ là trung thực về phạm vi đã kiểm. Khi job gặp `truncated`
+lần đầu ngoài đời, `ks.card_sync_log.last_error` giữ NGUYÊN VĂN `reason` +
+message (không rút gọn) — đó là bằng chứng duy nhất để kiểm hành vi có đúng
+thiết kế không. Tìm bằng:
+
+```sql
+SELECT * FROM ks.card_sync_log WHERE last_error LIKE '%truncated%';
+```
+
+Ghi chú liên quan: KS đã đo được `deepseek-v4-flash` là model reasoning và bị
+cắt output thật (xem mục trên). Mnemosyne dùng cùng provider, nên `truncated`
+gần như chắc chắn sẽ xảy ra — chỉ là chưa bắt được lúc nó xảy ra.
+
+## Mnemosyne KHÔNG có systemd unit
+
+`card_sync` phụ thuộc Mnemosyne sống ở `127.0.0.1:8081`, nhưng Mnemosyne chạy
+thủ công bằng `cargo run -p backend` và không có unit systemd nào. Timer
+`chiron-ks-card-sync.timer` chạy hằng giờ bất kể — khi Mnemosyne chết, job ghi
+`pending` và KHÔNG đốt lượt retry, nên tick sau tự bù. Không mất dữ liệu, chỉ
+trễ. Không cần sửa gì phía KS.
+
+Mnemosyne cũng chưa có auth layer (simplification có chủ ý phía họ), nên
+`KS_MNEMOSYNE_TOKEN` để trống được. KS vẫn gửi header `Authorization` NẾU biến
+có giá trị, để sẵn sàng cho lúc họ thêm auth.
+
 ## LỆCH BRIEF CÓ CHỦ ĐÍCH: systemd ở mức USER, không phải system
 
 Brief §10 và bản build lần trước dùng system-level (`/etc/systemd/system/`,

@@ -58,7 +58,7 @@ class CardClient(Protocol):
 class HttpCardClient:
     """Client HTTP thật tới Mnemosyne."""
 
-    def __init__(self, base_url: str, token: str, *, timeout: int = 30):
+    def __init__(self, base_url: str, token: str = "", *, timeout: int = 30):
         self._base_url = base_url.rstrip("/")
         self._token = token
         self._timeout = timeout
@@ -68,14 +68,15 @@ class HttpCardClient:
         # Cả hai field bắt buộc và đều là UUID. Gửi tên set thay cho id sẽ bị
         # serde phía Mnemosyne từ chối bằng 400.
         body = json.dumps({"study_set_id": str(study_set_id), "node_id": str(node_id)})
+        # Mnemosyne CHƯA có auth layer (simplification có chủ ý, ghi trong README
+        # của họ) — /cards/from_node không có extractor auth nào. Gửi header khi
+        # có token để sẵn sàng cho lúc họ thêm auth, còn thiếu token thì vẫn gọi
+        # được chứ không tự chặn mình.
+        headers = {"content-type": "application/json"}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
         req = urllib.request.Request(
-            url,
-            data=body.encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self._token}",
-                "content-type": "application/json",
-            },
-            method="POST",
+            url, data=body.encode("utf-8"), headers=headers, method="POST"
         )
         try:
             with urllib.request.urlopen(req, timeout=self._timeout) as resp:
@@ -100,18 +101,10 @@ def _read_json(raw: bytes) -> Any:
 def client_from_env(env: dict[str, str] | None = None) -> HttpCardClient:
     env = os.environ if env is None else env
     url = env.get(settings.MNEMOSYNE_URL_ENV, "")
-    token = env.get(settings.MNEMOSYNE_TOKEN_ENV, "")
-    missing = [
-        name
-        for name, val in (
-            (settings.MNEMOSYNE_URL_ENV, url),
-            (settings.MNEMOSYNE_TOKEN_ENV, token),
-        )
-        if not val
-    ]
-    if missing:
-        raise CardClientError(f"Thiếu biến môi trường: {', '.join(missing)}")
-    return HttpCardClient(url, token)
+    if not url:
+        raise CardClientError(f"Thiếu biến môi trường {settings.MNEMOSYNE_URL_ENV}")
+    # Token KHÔNG bắt buộc: Mnemosyne chưa có auth layer.
+    return HttpCardClient(url, env.get(settings.MNEMOSYNE_TOKEN_ENV, ""))
 
 
 def study_set_id_from_env(env: dict[str, str] | None = None) -> UUID:
