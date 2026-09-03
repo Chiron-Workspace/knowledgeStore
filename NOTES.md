@@ -132,19 +132,60 @@ truncated thật.** Probe của Mnemosyne gọi thẳng endpoint của họ, kh�
 job này. Cái đã được xác nhận là *hình dạng dữ liệu*, không phải *đường đi*.
 `_decide()` đã được kiểm bằng chính payload đó và trả `failed` đúng thiết kế.
 
-### ⚠️ Câu hỏi cho Agent A: có nên retry `truncated` không?
-Brief chốt "KHÔNG retry cùng input — gần như chắc chắn lặp lại y hệt". Hai bằng
-chứng thu được sau đó đều nói ngược lại:
+### Retry `truncated`: đã có số thật, nhưng KHÔNG áp được cho vận hành
+Brief chốt "KHÔNG retry cùng input — gần như chắc chắn lặp lại y hệt".
+Mnemosyne đo 40 call thật (cùng node, cùng prompt, 10 lần mỗi mức ngân sách):
 
-1. Message của chính Mnemosyne: *"Retrying, or requesting fewer items, may succeed."*
-2. Đo thật của KS: `reasoning_tokens` dao động **65 → 200** giữa các lần gọi
-   giống hệt nhau. Lần trước cạn ngân sách không có nghĩa lần sau cũng cạn.
+| max_tokens | truncated | reasoning quan sát | retry cùng input thành công |
+|---|---|---|---|
+| 200 | 10/10 | 200 (đụng trần) | 0/10 |
+| 350 | 10/10 | 232 – 350 | 0/10 |
+| 500 | 8/10 | 78 – 500 | 2/8 |
+| 650 | 7/10 | 162 – 650 | 2/7 |
 
-Tức là "lặp lại y hệt" có vẻ không đúng với model reasoning. **KS chưa đổi hành
-vi** — vẫn `failed`, không retry, đúng brief. Đây là quyết định thiết kế của
-Agent A, không phải của code. Nếu đổi ý, chỗ sửa là nhánh `truncated` trong
-`ks/card_sync.py::_decide()` và nó nên dùng chung ngân sách retry với
-`provider_error` thay vì retry vô hạn.
+Cả hai câu khẳng định trước đó đều sai một nửa: dưới vùng biên retry thành công
+**0/20**, trong vùng biên **2–3/10**. Retry đáng giá nhưng chỉ ở vùng biên, và
+nhiều nhất 1–2 lượt.
+
+**CẢNH BÁO khi đọc bảng này — đừng mang tỉ lệ 2–3/10 sang vận hành thật.**
+Mnemosyne **không gửi `max_tokens`**, dùng mặc định của model. Nên truncation
+trong vận hành nghĩa là reasoning đã ăn hết TOÀN BỘ ngân sách mặc định — rơi ra
+**ngoài** vùng đo được ở trên. Không ai có số cho chế độ đó và không suy ra được.
+
+**KS giữ nguyên `failed`, không retry.** Đó là lựa chọn phòng thủ ở vùng chưa
+đo, không phải kết luận từ bảng trên. Agent A giờ có số thật để cân thay vì cân
+giữa hai câu khẳng định trái nhau. Nếu đổi ý, chỗ sửa là nhánh `truncated` trong
+`ks/card_sync.py::_decide()`, và nó nên dùng chung ngân sách retry với
+`provider_error` chứ không retry vô hạn.
+
+### Reply bị cắt THƯỜNG có nội dung — đây mới là cái bẫy thật
+Ở `max_tokens=350`, **5/10** call truncated vẫn trả về content thật (JSON viết
+dở, tới 310 ký tự). Không phải ca hiếm.
+
+Không check `finish_reason` thì đám đó đi thẳng vào parser và báo lỗi **định
+dạng**, khiến người đọc log đi soi prompt trong khi lỗi thật là **ngân sách
+token**. Đúng bug production ban đầu của KS — trước khi có `LLMTruncatedError`,
+`suggest_edges` đã báo `parse_error` cho chính ca này.
+
+KS được bảo vệ: trong `ks/llm.py`, `finish_reason == "length"` được kiểm TRƯỚC
+khi đọc `content`, nên phản hồi cắt-nhưng-có-nội-dung vẫn thành `LLMTruncatedError`.
+Ba test khoá lại:
+- cắt kèm JSON dở → `LLMTruncatedError`, không phải `LLMParseError`
+- **cắt kèm JSON HỢP LỆ CÚ PHÁP** → vẫn `LLMTruncatedError`. Đây là ca âm thầm
+  nguy hiểm nhất: model viết xong `]` rồi mới cạn token, chuỗi parse được nhưng
+  nội dung THIẾU. Chấp nhận nó là im lặng mất dữ liệu. Ngân sách phải thắng cú pháp.
+- đối chứng `finish_reason == "stop"` → đi qua bình thường, không chặn nhầm
+
+Kiểm lại lịch sử `ks.card_sync_log`: **không có dòng 502 nào**, nên KS không có
+lỗi cũ nào cần diễn giải lại thành truncation đội lốt parse error.
+
+Chi tiết tái hiện nằm ở `docs/gotchas.md` mục 2 phía Mnemosyne.
+
+### Biến động chi phí một prompt: gấp 4 lần
+Đo của KS (65 → 200) đúng và còn nhẹ. Ở `max_tokens=650`, cùng một request tiêu
+từ **162 tới 650** reasoning token, không có gì thay đổi phía người gọi. **Bất
+kỳ logic nào giả định một prompt có chi phí ổn định đều sai** — kể cả việc chọn
+`max_tokens` theo độ dài output nhìn thấy được.
 
 ### ⚠️ `tokens_used` bên Mnemosyne ghi 0 cho mọi lượt fail
 Mnemosyne tự phát hiện: call bị truncated **vẫn đốt token thật** (~200 ở lần

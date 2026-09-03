@@ -251,3 +251,51 @@ def test_truncated_la_con_cua_transient_nen_retry_duoc():
     """Lượng reasoning token thay đổi mỗi lần chạy — cùng max_tokens lúc đủ lúc không."""
     from ks.llm import LLMTruncatedError
     assert issubclass(LLMTruncatedError, LLMTransientError)
+
+
+def test_truncated_CO_content_van_phai_la_truncated_KHONG_phai_parse_error():
+    """Mnemosyne đo 40 call thật: ở max_tokens=350, 5/10 reply bị cắt vẫn TRẢ
+    VỀ content — JSON viết dở, tới 310 ký tự. Không phải ca hiếm.
+
+    Không check finish_reason thì đám đó đi thẳng vào parser và báo lỗi ĐỊNH
+    DẠNG, khiến người đọc log đi soi prompt trong khi lỗi thật là ngân sách
+    token. Đúng bug production ban đầu của KS.
+    """
+    from ks.llm import LLMTruncatedError
+    data = {
+        "choices": [{
+            "message": {"content": '[\n  {\n    "candidate": 0,\n    "relation_type": "pr'},
+            "finish_reason": "length",
+        }],
+        "usage": {"completion_tokens": 350,
+                  "completion_tokens_details": {"reasoning_tokens": 232}},
+    }
+    provider = OpenAICompatibleProvider("m", "k", base_url="https://x/v1", post=fake_post(200, data))
+    with pytest.raises(LLMTruncatedError):
+        provider.complete(MSGS)
+
+
+def test_JSON_HOP_LE_nhung_finish_reason_length_van_bi_tu_choi():
+    """Ca âm thầm nguy hiểm nhất: model viết xong `]` rồi mới cạn token. Chuỗi
+    parse được, nhưng nội dung THIẾU so với đáng lẽ phải có.
+
+    Chấp nhận nó là im lặng mất dữ liệu — một phần câu trả lời bị coi như toàn
+    bộ. Ngân sách token phải thắng cú pháp: cắt là bỏ, không cứu vãn.
+    """
+    from ks.llm import LLMTruncatedError
+    data = {
+        "choices": [{
+            "message": {"content": '[{"candidate": 0, "relation_type": "related", "reason": "x"}]'},
+            "finish_reason": "length",
+        }],
+    }
+    provider = OpenAICompatibleProvider("m", "k", base_url="https://x/v1", post=fake_post(200, data))
+    with pytest.raises(LLMTruncatedError):
+        provider.complete(MSGS)
+
+
+def test_finish_reason_stop_thi_content_hop_le_van_di_qua_binh_thuong():
+    """Đối chứng: check truncation không được chặn nhầm phản hồi lành lặn."""
+    data = {"choices": [{"message": {"content": "[]"}, "finish_reason": "stop"}]}
+    provider = OpenAICompatibleProvider("m", "k", base_url="https://x/v1", post=fake_post(200, data))
+    assert provider.complete(MSGS) == "[]"
